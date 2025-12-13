@@ -1,0 +1,272 @@
+import { forwardRef, useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { PageToolbar } from '@/components/shared/PageToolbar';
+import { FilterBar, FilterConfig, useFilterBar } from '@/components/shared/FilterBar';
+import { TransactionList } from '@/components/transactions/TransactionList';
+import { TransactionDetail } from '@/components/transactions/TransactionDetail';
+import { ExportButton } from '@/components/shared/ExportButton';
+import { mockTransactions, Transaction } from '@/data/mockTransactions';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
+import { useKeyboard } from '@/contexts/KeyboardContext';
+import { usePagePerformance } from '@/hooks/usePerformance';
+import { exportToCSV } from '@/lib/csvExport';
+import { transactionExportColumns } from '@/lib/exportConfigs';
+
+const FILTER_CONFIGS: FilterConfig[] = [
+  {
+    type: 'type',
+    label: 'Type',
+    options: [
+      { value: 'invoice', label: 'Invoice' },
+      { value: 'payment', label: 'Payment' },
+      { value: 'expense', label: 'Expense' },
+      { value: 'bill', label: 'Bill' },
+      { value: 'journal', label: 'Journal Entry' },
+    ],
+  },
+  {
+    type: 'status',
+    label: 'Status',
+    options: [
+      { value: 'synced', label: 'Synced' },
+      { value: 'pending', label: 'Pending' },
+      { value: 'error', label: 'Error' },
+    ],
+  },
+  {
+    type: 'account',
+    label: 'Account',
+    options: [
+      { value: 'checking', label: 'Checking' },
+      { value: 'savings', label: 'Savings' },
+      { value: 'receivable', label: 'Accounts Receivable' },
+      { value: 'payable', label: 'Accounts Payable' },
+    ],
+  },
+];
+
+const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
+  usePagePerformance('Transactions');
+  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [quickEditMode, setQuickEditMode] = useState<'date' | 'memo' | null>(null);
+  const [quickEditValue, setQuickEditValue] = useState('');
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+  const { registerHandler, unregisterHandler } = useKeyboard();
+  const filterBar = useFilterBar();
+
+  // Auto-focus list when navigated via keyboard shortcut
+  useEffect(() => {
+    if (searchParams.get('focus') === 'list') {
+      setTimeout(() => listContainerRef.current?.focus(), 50);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const filteredTransactions = useMemo(() => {
+    let result = mockTransactions;
+    
+    // Apply filter chips
+    filterBar.filters.forEach(chip => {
+      if (chip.type === 'type') {
+        result = result.filter(txn => txn.type.toLowerCase() === chip.value);
+      } else if (chip.type === 'status') {
+        result = result.filter(txn => txn.status === chip.value);
+      } else if (chip.type === 'account') {
+        result = result.filter(txn => txn.account.toLowerCase().includes(chip.value));
+      }
+    });
+
+    // Apply search query when filter bar is closed
+    if (!filterBar.isOpen && searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(txn => 
+        txn.entity.toLowerCase().includes(query) ||
+        txn.docNumber.toLowerCase().includes(query) ||
+        txn.memo.toLowerCase().includes(query) ||
+        txn.account.toLowerCase().includes(query)
+      );
+    }
+    
+    return result;
+  }, [searchQuery, filterBar.filters, filterBar.isOpen]);
+
+  // Export handler
+  const handleExport = useCallback(() => {
+    exportToCSV({
+      data: filteredTransactions,
+      columns: transactionExportColumns,
+      entityName: 'transactions',
+      filters: filterBar.filters,
+    });
+    toast.success(`Exported ${filteredTransactions.length} transactions`);
+  }, [filteredTransactions, filterBar.filters]);
+
+  // Register keyboard handlers
+  useEffect(() => {
+    const handleToggleFilter = () => {
+      filterBar.toggle();
+    };
+
+    const handleEditSelected = () => {
+      if (selectedTransaction) {
+        setDetailOpen(true);
+      }
+    };
+
+    const handleExportView = () => {
+      handleExport();
+    };
+
+    registerHandler('toggle-filter', handleToggleFilter);
+    registerHandler('edit-selected', handleEditSelected);
+    registerHandler('export-current-view', handleExportView);
+    
+    return () => {
+      unregisterHandler('toggle-filter');
+      unregisterHandler('edit-selected');
+      unregisterHandler('export-current-view');
+    };
+  }, [registerHandler, unregisterHandler, selectedTransaction, filterBar, handleExport]);
+
+  const handleTransactionSelect = useCallback((transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setDetailOpen(true);
+  }, []);
+
+  // Quick edit handlers
+  const startQuickEdit = useCallback((mode: 'date' | 'memo') => {
+    if (!selectedTransaction) {
+      toast.error('No transaction selected');
+      return;
+    }
+    setQuickEditMode(mode);
+    setQuickEditValue(mode === 'date' ? selectedTransaction.date : selectedTransaction.memo);
+  }, [selectedTransaction]);
+
+  const saveQuickEdit = useCallback(() => {
+    if (!selectedTransaction || !quickEditMode) return;
+    
+    toast.success(`${quickEditMode === 'date' ? 'Date' : 'Memo'} updated`);
+    setQuickEditMode(null);
+    setQuickEditValue('');
+  }, [selectedTransaction, quickEditMode]);
+
+  const cancelQuickEdit = useCallback(() => {
+    setQuickEditMode(null);
+    setQuickEditValue('');
+  }, []);
+
+  // Quick edit keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        if (quickEditMode) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelQuickEdit();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            saveQuickEdit();
+          }
+        }
+        return;
+      }
+
+      if (detailOpen) return;
+
+      if (e.key.toLowerCase() === 'd' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        startQuickEdit('date');
+      } else if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        startQuickEdit('memo');
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [detailOpen, quickEditMode, startQuickEdit, saveQuickEdit, cancelQuickEdit]);
+
+  return (
+    <div ref={ref} className="h-full flex flex-col">
+      <PageToolbar
+        title="Transactions"
+        searchPlaceholder="Search transactions..."
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchInputRef={searchInputRef}
+        hideSearch={filterBar.isOpen}
+        actions={
+          <ExportButton onClick={handleExport} itemCount={filteredTransactions.length} />
+        }
+      />
+
+      {/* Filter Bar */}
+      {filterBar.isOpen && (
+        <FilterBar
+          filters={filterBar.filters}
+          onFiltersChange={filterBar.setFilters}
+          filterConfigs={FILTER_CONFIGS}
+          placeholder="Filter transactions... (Tab to lock)"
+          onClose={filterBar.close}
+        />
+      )}
+
+      {/* Quick Edit Overlay */}
+      {quickEditMode && selectedTransaction && (
+        <div className="bg-primary/5 border-b border-primary/20 px-4 py-2 flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">
+            Quick edit {quickEditMode} for <strong>{selectedTransaction.docNumber}</strong>:
+          </span>
+          {quickEditMode === 'date' ? (
+            <Input
+              type="date"
+              value={quickEditValue}
+              onChange={(e) => setQuickEditValue(e.target.value)}
+              className="w-40 h-7 text-sm"
+              autoFocus
+            />
+          ) : (
+            <Input
+              value={quickEditValue}
+              onChange={(e) => setQuickEditValue(e.target.value)}
+              placeholder="Enter memo..."
+              className="flex-1 max-w-md h-7 text-sm"
+              autoFocus
+            />
+          )}
+          <span className="text-xs text-muted-foreground">
+            <kbd className="kbd text-[10px]">Enter</kbd> save
+            <kbd className="kbd text-[10px] ml-2">Esc</kbd> cancel
+          </span>
+        </div>
+      )}
+
+      <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
+        <TransactionList 
+          transactions={filteredTransactions}
+          onTransactionSelect={setSelectedTransaction}
+          onTransactionOpen={handleTransactionSelect}
+        />
+      </div>
+
+      <TransactionDetail
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        transaction={selectedTransaction}
+      />
+    </div>
+  );
+});
+
+Transactions.displayName = 'Transactions';
+
+export default Transactions;

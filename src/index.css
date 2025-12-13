@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Superhuman for QuickBooks Design System */
+
+@layer base {
+  :root {
+    /* Core Background */
+    --background: 0 0% 98%;
+    --foreground: 220 20% 10%;
+
+    /* Card/Surface */
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+
+    /* Popover */
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+
+    /* Primary - Green Accent #10b981 */
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 20% 10%;
+
+    /* Muted */
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 46%;
+
+    /* Accent */
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Border/Input/Ring */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 160 84% 39%;
+
+    --radius: 0.375rem;
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 20% 10%;
+    --sidebar-primary: 160 84% 39%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 220 20% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 160 84% 39%;
+
+    /* Status Bar */
+    --statusbar-background: 220 14% 96%;
+    --statusbar-foreground: 220 10% 46%;
+
+    /* Sync States */
+    --sync-synced: 160 84% 39%;
+    --sync-pending: 45 93% 47%;
+    --sync-error: 0 84% 60%;
+    --sync-conflict: 280 67% 52%;
+  }
+
+  .dark {
+    /* Core Background - Bloomberg-inspired dark */
+    --background: 220 20% 7%;
+    --foreground: 220 14% 96%;
+
+    /* Card/Surface */
+    --card: 220 20% 10%;
+    --card-foreground: 220 14% 96%;
+
+    /* Popover */
+    --popover: 220 20% 10%;
+    --popover-foreground: 220 14% 96%;
+
+    /* Primary - Green Accent */
+    --primary: 160 84% 45%;
+    --primary-foreground: 220 20% 7%;
+
+    /* Secondary */
+    --secondary: 220 20% 14%;
+    --secondary-foreground: 220 14% 96%;
+
+    /* Muted */
+    --muted: 220 20% 14%;
+    --muted-foreground: 220 10% 56%;
+
+    /* Accent */
+    --accent: 160 84% 45%;
+    --accent-foreground: 220 20% 7%;
+
+    /* Destructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Border/Input/Ring */
+    --border: 220 20% 18%;
+    --input: 220 20% 18%;
+    --ring: 160 84% 45%;
+
+    /* Sidebar */
+    --sidebar-background: 220 20% 9%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 160 84% 45%;
+    --sidebar-primary-foreground: 220 20% 7%;
+    --sidebar-accent: 220 20% 14%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 220 20% 18%;
+    --sidebar-ring: 160 84% 45%;
+
+    /* Status Bar */
+    --statusbar-background: 220 20% 9%;
+    --statusbar-foreground: 220 10% 56%;
+
+    /* Sync States */
+    --sync-synced: 160 84% 45%;
+    --sync-pending: 45 93% 52%;
+    --sync-error: 0 72% 51%;
+    --sync-conflict: 280 67% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Focus rings - Green accent */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  /* Monospace for financial data */
+  .font-mono-nums {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Dense table rows */
+  .table-dense tr {
+    @apply h-8;
+  }
+
+  /* Keyboard shortcut styling */
+  .kbd {
+    @apply inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-medium rounded border bg-muted text-muted-foreground font-mono-nums;
+    min-width: 1.5rem;
+  }
+}
