@@ -15,14 +15,19 @@ export interface BillLineItem {
 
 export interface Bill {
   id: string;
+  companyId: string;
   docNumber: string;
   txnDate: string;
   dueDate: string;
   vendor: Vendor;
+  vendorId: string;
+  vendorName: string;
   lineItems: BillLineItem[];
+  lines: BillLineItem[];
   subtotal: number;
   tax: number;
   total: number;
+  totalAmount: number;
   balance: number;
   status: 'draft' | 'pending' | 'paid' | 'overdue' | 'partial';
   paymentStatus: 'unpaid' | 'partial' | 'paid';
@@ -117,16 +122,22 @@ export function generateMockBills(count: number = 150): Bill[] {
       paymentStatus = 'partial';
     }
     
+    const vendor = vendors[Math.floor(Math.random() * vendors.length)];
     bills.push({
       id: `bill-${i + 1}`,
+      companyId: 'comp-1',
       docNumber: `BILL-${String(i + 1).padStart(5, '0')}`,
       txnDate,
       dueDate: dueDateObj.toISOString().split('T')[0],
-      vendor: vendors[Math.floor(Math.random() * vendors.length)],
+      vendor,
+      vendorId: vendor.id,
+      vendorName: vendor.name,
       lineItems,
+      lines: lineItems,
       subtotal: Math.round(subtotal * 100) / 100,
       tax,
       total,
+      totalAmount: total,
       balance,
       status,
       paymentStatus,

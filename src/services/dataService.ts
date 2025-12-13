@@ -58,15 +58,24 @@ class DataService {
       if (dbResults.length > 0) {
         console.log('[DataService] IndexedDB HIT:', cacheKey);
         
-        // Apply filters
-        let filtered = dbResults as Invoice[];
-        if (filters?.status) {
-          filtered = filtered.filter(inv => inv.status === filters.status);
-        }
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as Invoice[]).filter(inv => inv.companyId === companyId);
         
-        // Update memory cache
-        cacheManager.set(cacheKey, filtered);
-        return filtered;
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.invoices.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.status) {
+            filtered = filtered.filter(inv => inv.status === filters.status);
+          }
+          
+          // Update memory cache
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
+        }
       }
     } catch (error) {
       console.warn('[DataService] IndexedDB read failed:', error);
@@ -164,17 +173,31 @@ class DataService {
    * Optimistic create (for immediate UI update)
    */
   optimisticCreateInvoice(tempId: string, data: Partial<Invoice>): void {
+    // Generate unique docNumber if not provided
+    const docNumber = data.docNumber || `INV-TEMP-${Date.now().toString().slice(-6)}`;
+    
     const optimisticInvoice: Invoice = {
       id: tempId,
       companyId: data.companyId || 'comp-1',
+      docNumber,
       customerId: data.customerId || '',
       customerName: data.customerName || '',
+      customer: data.customer || '',
       txnDate: data.txnDate || new Date().toISOString().split('T')[0],
       dueDate: data.dueDate || new Date().toISOString().split('T')[0],
+      lineItems: data.lineItems || [],
+      subtotal: data.subtotal || 0,
+      taxRate: data.taxRate || 0,
+      taxAmount: data.taxAmount || 0,
+      total: data.total || 0,
       totalAmount: data.totalAmount || 0,
-      status: 'DRAFT',
-      lines: data.lines || [],
-      ...data,
+      balance: data.balance || data.total || 0,
+      status: data.status || 'draft',
+      emailStatus: data.emailStatus || 'not_sent',
+      syncStatus: 'local_only',
+      memo: data.memo || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     // Add to memory cache immediately
@@ -210,6 +233,63 @@ class DataService {
    * Update invoice
    */
   async updateInvoice(id: string, data: Partial<Invoice>): Promise<Invoice> {
+    // Check if this is a temp invoice (optimistically created, not yet synced to API)
+    let existingInvoice: Invoice | null = null;
+    
+    if (id.startsWith('temp-')) {
+      // For temp invoices, get from cache/IndexedDB first
+      existingInvoice = cacheManager.get<Invoice>(cacheKeys.invoice(id));
+      if (!existingInvoice) {
+        try {
+          const dbResult = await dbHelpers.getById(db.invoices, id);
+          if (dbResult) {
+            existingInvoice = dbResult as Invoice;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp invoice from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingInvoice) {
+        throw new Error(`Invoice ${id} not found in cache or IndexedDB`);
+      }
+      
+      // Merge data with existing invoice
+      const lineItems = data.lineItems || existingInvoice.lineItems;
+      const subtotal = data.subtotal ?? lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      const taxRate = data.taxRate ?? existingInvoice.taxRate;
+      const taxAmount = data.taxAmount ?? subtotal * taxRate;
+      const total = data.total ?? subtotal + taxAmount;
+      
+      const updatedInvoice: Invoice = {
+        ...existingInvoice,
+        ...data,
+        lineItems,
+        subtotal,
+        taxRate,
+        taxAmount,
+        total,
+        balance: data.balance ?? total,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Update cache and IndexedDB (still pending sync)
+      cacheManager.set(cacheKeys.invoice(id), updatedInvoice);
+      
+      try {
+        await dbHelpers.upsert(db.invoices, {
+          ...updatedInvoice,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedInvoice);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateInvoiceLists();
+      return updatedInvoice;
+    }
+    
+    // For regular invoices, call API
     const updatedInvoice = await apiClient.updateInvoice(id, data);
 
     // Update caches
@@ -282,12 +362,22 @@ class DataService {
     try {
       const dbResults = await dbHelpers.getByCompany<CachedBill>(db.bills, companyId);
       if (dbResults.length > 0) {
-        let filtered = dbResults as Bill[];
-        if (filters?.status) {
-          filtered = filtered.filter(bill => bill.status === filters.status);
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as Bill[]).filter(bill => bill.companyId === companyId);
+        
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.bills.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.status) {
+            filtered = filtered.filter(bill => bill.status === filters.status);
+          }
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
         }
-        cacheManager.set(cacheKey, filtered);
-        return filtered;
       }
     } catch (error) {
       console.warn('[DataService] IndexedDB read failed:', error);
@@ -361,17 +451,35 @@ class DataService {
   }
 
   optimisticCreateBill(tempId: string, data: Partial<Bill>): void {
+    const vendor = data.vendor || { id: data.vendorId || '', name: data.vendorName || 'New Vendor' };
+    const lineItems = data.lineItems || data.lines || [];
+    const subtotal = data.subtotal || lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const tax = data.tax || subtotal * 0.0825;
+    const total = data.total || data.totalAmount || subtotal + tax;
+    
+    // Generate unique docNumber if not provided
+    const docNumber = data.docNumber || `BILL-TEMP-${Date.now().toString().slice(-6)}`;
+    
     const optimisticBill: Bill = {
       id: tempId,
       companyId: data.companyId || 'comp-1',
-      vendorId: data.vendorId || '',
-      vendorName: data.vendorName || '',
+      docNumber,
       txnDate: data.txnDate || new Date().toISOString().split('T')[0],
       dueDate: data.dueDate || new Date().toISOString().split('T')[0],
-      totalAmount: data.totalAmount || 0,
-      status: 'DRAFT',
-      lines: data.lines || [],
-      ...data,
+      vendor,
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      lineItems,
+      lines: lineItems,
+      subtotal,
+      tax,
+      total,
+      totalAmount: total,
+      balance: data.balance || total,
+      status: data.status || 'draft',
+      paymentStatus: data.paymentStatus || 'unpaid',
+      syncStatus: 'pending',
+      memo: data.memo,
     };
 
     cacheManager.set(cacheKeys.bill(tempId), optimisticBill);
@@ -399,6 +507,65 @@ class DataService {
   }
 
   async updateBill(id: string, data: Partial<Bill>): Promise<Bill> {
+    // Check if this is a temp bill (optimistically created, not yet synced to API)
+    let existingBill: Bill | null = null;
+    
+    if (id.startsWith('temp-')) {
+      // For temp bills, get from cache/IndexedDB first
+      existingBill = cacheManager.get<Bill>(cacheKeys.bill(id));
+      if (!existingBill) {
+        try {
+          const dbResult = await dbHelpers.getById(db.bills, id);
+          if (dbResult) {
+            existingBill = dbResult as Bill;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp bill from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingBill) {
+        throw new Error(`Bill ${id} not found in cache or IndexedDB`);
+      }
+      
+      // Merge data with existing bill
+      const vendor = data.vendor || existingBill.vendor;
+      const lineItems = data.lineItems || data.lines || existingBill.lineItems;
+      const subtotal = data.subtotal ?? (lineItems.reduce((sum, item) => sum + (item.amount || 0), 0));
+      const tax = data.tax ?? subtotal * 0.0825;
+      const total = data.total || data.totalAmount || subtotal + tax;
+      
+      const updatedBill: Bill = {
+        ...existingBill,
+        ...data,
+        vendor,
+        vendorId: vendor.id,
+        vendorName: vendor.name,
+        lineItems,
+        lines: lineItems,
+        subtotal,
+        tax,
+        total,
+        totalAmount: total,
+      };
+      
+      // Update cache and IndexedDB (still pending sync)
+      cacheManager.set(cacheKeys.bill(id), updatedBill);
+      
+      try {
+        await dbHelpers.upsert(db.bills, {
+          ...updatedBill,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedBill);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateBillLists();
+      return updatedBill;
+    }
+    
+    // For regular bills, call API
     const updatedBill = await apiClient.updateBill(id, data);
     cacheManager.set(cacheKeys.bill(id), updatedBill);
 
@@ -527,12 +694,22 @@ class DataService {
     try {
       const dbResults = await dbHelpers.getByCompany<CachedJournalEntry>(db.journalEntries, companyId);
       if (dbResults.length > 0) {
-        let filtered = dbResults as JournalEntry[];
-        if (filters?.status) {
-          filtered = filtered.filter(je => je.status === filters.status);
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as JournalEntry[]).filter(je => je.companyId === companyId);
+        
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.journalEntries.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.status) {
+            filtered = filtered.filter(je => je.status === filters.status);
+          }
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
         }
-        cacheManager.set(cacheKey, filtered);
-        return filtered;
       }
     } catch (error) {
       console.warn('[DataService] IndexedDB read failed:', error);
@@ -605,16 +782,26 @@ class DataService {
   }
 
   optimisticCreateJournalEntry(tempId: string, data: Partial<JournalEntry>): void {
+    const lines = data.lines || [];
+    const totalDebit = data.totalDebit || lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+    const totalCredit = data.totalCredit || lines.reduce((sum, l) => sum + (l.credit || 0), 0);
+    
+    // Generate unique docNumber if not provided
+    const docNumber = data.docNumber || `JE-TEMP-${Date.now().toString().slice(-6)}`;
+    
     const optimisticEntry: JournalEntry = {
       id: tempId,
       companyId: data.companyId || 'comp-1',
       txnDate: data.txnDate || new Date().toISOString().split('T')[0],
-      docNumber: data.docNumber || `JE-${Date.now()}`,
-      totalDebit: data.totalDebit || 0,
-      totalCredit: data.totalCredit || 0,
-      status: 'DRAFT',
-      lines: data.lines || [],
-      ...data,
+      docNumber,
+      lines,
+      totalDebit,
+      totalCredit,
+      memo: data.memo || '',
+      status: data.status || 'draft',
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     cacheManager.set(cacheKeys.journalEntry(tempId), optimisticEntry);
@@ -642,6 +829,58 @@ class DataService {
   }
 
   async updateJournalEntry(id: string, data: Partial<JournalEntry>): Promise<JournalEntry> {
+    // Check if this is a temp journal entry (optimistically created, not yet synced to API)
+    let existingEntry: JournalEntry | null = null;
+    
+    if (id.startsWith('temp-')) {
+      // For temp entries, get from cache/IndexedDB first
+      existingEntry = cacheManager.get<JournalEntry>(cacheKeys.journalEntry(id));
+      if (!existingEntry) {
+        try {
+          const dbResult = await dbHelpers.getById(db.journalEntries, id);
+          if (dbResult) {
+            existingEntry = dbResult as JournalEntry;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp journal entry from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingEntry) {
+        throw new Error(`Journal Entry ${id} not found in cache or IndexedDB`);
+      }
+      
+      // Merge data with existing entry
+      const lines = data.lines || existingEntry.lines;
+      const totalDebit = data.totalDebit ?? lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+      const totalCredit = data.totalCredit ?? lines.reduce((sum, l) => sum + (l.credit || 0), 0);
+      
+      const updatedEntry: JournalEntry = {
+        ...existingEntry,
+        ...data,
+        lines,
+        totalDebit,
+        totalCredit,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Update cache and IndexedDB (still pending sync)
+      cacheManager.set(cacheKeys.journalEntry(id), updatedEntry);
+      
+      try {
+        await dbHelpers.upsert(db.journalEntries, {
+          ...updatedEntry,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedJournalEntry);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateJournalEntryLists();
+      return updatedEntry;
+    }
+    
+    // For regular entries, call API
     const updated = await apiClient.updateJournalEntry(id, data);
     cacheManager.set(cacheKeys.journalEntry(id), updated);
 

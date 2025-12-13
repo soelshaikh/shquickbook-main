@@ -55,6 +55,7 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   const [undoState, setUndoState] = useState<{
     message: string;
     billId?: string;
+    previousBill?: Bill;
     action: 'create' | 'update';
   } | null>(null);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
@@ -185,19 +186,23 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback(async (billData: Partial<Bill>) => {
-    // Check if it's an update (has ID that matches mock data pattern: bill-1, bill-2, etc.)
-    // NOT generated IDs like bill-1736789012-xyz or temp IDs
-    const isUpdate = editingBill && editingBill.id && /^bill-\d+$/.test(editingBill.id);
+    // Check if it's an update - has an ID and it's not empty
+    // This works for both original mock IDs (bill-1) and newly created ones (bill-1736789012-xyz)
+    const isUpdate = editingBill && editingBill.id && editingBill.id.trim() !== '';
     
     if (isUpdate) {
-      setUndoState({
-        message: 'Bill updated',
-        action: 'update',
-      });
+      const previousBill = { ...editingBill };
       
       await updateBillMutation.mutateAsync({ 
         id: editingBill.id, 
         data: { ...billData, companyId: 'comp-1' }
+      });
+      
+      setUndoState({
+        message: 'Bill updated',
+        billId: editingBill.id,
+        previousBill,
+        action: 'update',
       });
     } else {
       const tempId = `temp-${Date.now()}`;
@@ -214,7 +219,7 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
         action: 'create',
       });
     }
-  }, [editingBill, createBillMutation, updateBillMutation]);
+  }, [editingBill, updateBillMutation, queryClient]);
 
   const handleSaveAndClose = useCallback(async (billData: Partial<Bill>) => {
     await handleSave(billData);
@@ -225,12 +230,19 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
     if (undoState) {
       if (undoState.action === 'create' && undoState.billId) {
         dataService.rollbackBill(undoState.billId);
-        // Invalidate React Query cache so it refetches and removes the bill from list
         queryClient.invalidateQueries({ queryKey: ['bills'] });
+        toast.success('Bill creation undone');
+      } else if (undoState.action === 'update' && undoState.billId && undoState.previousBill) {
+        // For updates, revert to previous state
+        updateBillMutation.mutate({ 
+          id: undoState.billId, 
+          data: undoState.previousBill 
+        });
+        toast.success('Bill update undone');
       }
       setUndoState(null);
     }
-  }, [undoState, queryClient]);
+  }, [undoState, queryClient, updateBillMutation]);
 
   const handleDismissUndo = useCallback(() => {
     setUndoState(null);

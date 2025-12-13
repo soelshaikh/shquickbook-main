@@ -163,17 +163,32 @@ export class ApiClient {
   async createBill(data: Partial<Bill>): Promise<Bill> {
     await simulateDelay(400);
     
+    const vendor = data.vendor || { id: data.vendorId || '', name: data.vendorName || 'New Vendor' };
+    const lineItems = data.lineItems || data.lines || [];
+    const subtotal = data.subtotal || lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const tax = data.tax || subtotal * 0.0825;
+    const total = data.total || data.totalAmount || subtotal + tax;
+    
     const newBill: Bill = {
       id: generateId('bill'),
       companyId: data.companyId || 'comp-1',
-      vendorId: data.vendorId || '',
-      vendorName: data.vendorName || 'New Vendor',
+      docNumber: data.docNumber || `BILL-${Date.now()}`,
       txnDate: data.txnDate || new Date().toISOString().split('T')[0],
       dueDate: data.dueDate || new Date().toISOString().split('T')[0],
-      totalAmount: data.totalAmount || 0,
-      status: 'DRAFT',
-      lines: data.lines || [],
-      ...data,
+      vendor,
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      lineItems,
+      lines: lineItems,
+      subtotal,
+      tax,
+      total,
+      totalAmount: total,
+      balance: data.balance || total,
+      status: data.status || 'draft',
+      paymentStatus: data.paymentStatus || 'unpaid',
+      syncStatus: 'synced',
+      memo: data.memo,
     };
     
     return newBill;
@@ -187,7 +202,26 @@ export class ApiClient {
       throw new Error(`Bill ${id} not found`);
     }
     
-    return { ...existing, ...data };
+    // Merge vendor data properly
+    const vendor = data.vendor || existing.vendor;
+    const lineItems = data.lineItems || data.lines || existing.lineItems;
+    const subtotal = data.subtotal ?? (lineItems.reduce((sum, item) => sum + (item.amount || 0), 0));
+    const tax = data.tax ?? subtotal * 0.0825;
+    const total = data.total || data.totalAmount || subtotal + tax;
+    
+    return { 
+      ...existing, 
+      ...data,
+      vendor,
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      lineItems,
+      lines: lineItems,
+      subtotal,
+      tax,
+      total,
+      totalAmount: total,
+    };
   }
 
   async deleteBill(id: string): Promise<void> {
@@ -243,16 +277,23 @@ export class ApiClient {
   async createJournalEntry(data: Partial<JournalEntry>): Promise<JournalEntry> {
     await simulateDelay(400);
     
+    const lines = data.lines || [];
+    const totalDebit = data.totalDebit || lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+    const totalCredit = data.totalCredit || lines.reduce((sum, l) => sum + (l.credit || 0), 0);
+    
     const newEntry: JournalEntry = {
       id: generateId('je'),
       companyId: data.companyId || 'comp-1',
       txnDate: data.txnDate || new Date().toISOString().split('T')[0],
       docNumber: data.docNumber || `JE-${Date.now()}`,
-      totalDebit: data.totalDebit || 0,
-      totalCredit: data.totalCredit || 0,
-      status: 'DRAFT',
-      lines: data.lines || [],
-      ...data,
+      lines,
+      totalDebit,
+      totalCredit,
+      memo: data.memo || '',
+      status: data.status || 'draft',
+      syncStatus: 'synced',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     
     return newEntry;
@@ -266,7 +307,18 @@ export class ApiClient {
       throw new Error(`Journal Entry ${id} not found`);
     }
     
-    return { ...existing, ...data };
+    const lines = data.lines || existing.lines;
+    const totalDebit = data.totalDebit ?? lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+    const totalCredit = data.totalCredit ?? lines.reduce((sum, l) => sum + (l.credit || 0), 0);
+    
+    return { 
+      ...existing, 
+      ...data,
+      lines,
+      totalDebit,
+      totalCredit,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   async deleteJournalEntry(id: string): Promise<void> {

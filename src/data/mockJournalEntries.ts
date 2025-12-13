@@ -9,6 +9,7 @@ export interface JournalEntryLine {
 
 export interface JournalEntry {
   id: string;
+  companyId: string;
   docNumber: string;
   txnDate: string;
   lines: JournalEntryLine[];
@@ -106,6 +107,7 @@ export function generateMockJournalEntries(count: number = 100): JournalEntry[] 
     
     entries.push({
       id: `je-${i + 1}`,
+      companyId: 'comp-1',
       docNumber: `JE-${String(i + 1).padStart(5, '0')}`,
       txnDate,
       lines,

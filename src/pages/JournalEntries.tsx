@@ -165,18 +165,19 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback(async (data: Partial<JournalEntry>) => {
-    // Check if it's an update (has ID that matches mock data pattern: je-1, je-2, etc.)
-    // NOT generated IDs like je-1736789012-xyz or temp IDs
-    const isUpdate = editingEntry && editingEntry.id && /^je-\d+$/.test(editingEntry.id);
+    // Check if it's an update - has an ID and it's not empty
+    // This works for both original mock IDs (je-1) and newly created ones (je-1736789012-xyz)
+    const isUpdate = editingEntry && editingEntry.id && editingEntry.id.trim() !== '';
     
     if (isUpdate) {
-      const previousEntry = editingEntry;
-      setUndoState({ message: 'Journal entry updated', entry: previousEntry, action: 'update' });
+      const previousEntry = { ...editingEntry };
       
       await updateJournalEntryMutation.mutateAsync({ 
         id: editingEntry.id, 
         data: { ...data, companyId: 'comp-1' }
       });
+      
+      setUndoState({ message: 'Journal entry updated', entry: previousEntry, action: 'update' });
     } else {
       const tempId = `temp-${Date.now()}`;
       const entryData = { ...data, companyId: 'comp-1' };
@@ -188,7 +189,8 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
       
       const tempEntry: JournalEntry = {
         id: tempId,
-        docNumber: `JE-TEMP`,
+        companyId: 'comp-1',
+        docNumber: `JE-TEMP-${Date.now().toString().slice(-6)}`,
         txnDate: data.txnDate || new Date().toISOString().split('T')[0],
         lines: data.lines || [],
         totalDebit: data.totalDebit || 0,
@@ -202,7 +204,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
       
       setUndoState({ message: 'Journal entry created', entry: tempEntry, action: 'create' });
     }
-  }, [editingEntry, updateJournalEntryMutation]);
+  }, [editingEntry, updateJournalEntryMutation, queryClient]);
 
   const handleSaveAndClose = useCallback(async (data: Partial<JournalEntry>) => {
     await handleSave(data);
@@ -215,12 +217,19 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
     
     if (undoState.action === 'create') {
       dataService.rollbackJournalEntry(undoState.entry.id);
-      // Invalidate React Query cache so it refetches and removes the entry from list
       queryClient.invalidateQueries({ queryKey: ['journalEntries'] });
+      toast.success('Journal entry creation undone');
+    } else if (undoState.action === 'update') {
+      // For updates, revert to previous state
+      updateJournalEntryMutation.mutate({ 
+        id: undoState.entry.id, 
+        data: undoState.entry 
+      });
+      toast.success('Journal entry update undone');
     }
     
     setUndoState(null);
-  }, [undoState, queryClient]);
+  }, [undoState, queryClient, updateJournalEntryMutation]);
 
   const handleDuplicateFromForm = useCallback(() => {
     if (editingEntry && editingEntry.id) {

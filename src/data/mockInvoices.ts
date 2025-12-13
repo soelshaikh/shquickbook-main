@@ -12,6 +12,7 @@ export interface InvoiceLineItem {
 
 export interface Invoice {
   id: string;
+  companyId: string;
   docNumber: string;
   txnDate: string;
   dueDate: string;
@@ -120,6 +121,7 @@ export function generateMockInvoices(count: number = 150): Invoice[] {
     
     invoices.push({
       id: `inv-${String(i + 1).padStart(4, '0')}`,
+      companyId: 'comp-1',
       docNumber: `INV-${String(1000 + i).padStart(5, '0')}`,
       txnDate: formatDate(txnDate),
       dueDate: formatDate(dueDate),

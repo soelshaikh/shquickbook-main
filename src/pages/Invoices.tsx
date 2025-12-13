@@ -182,18 +182,19 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback(async (data: Partial<Invoice>) => {
-    // Check if it's an update (has ID that matches mock data pattern: inv-1, inv-2, etc.)
-    // NOT generated IDs like inv-1736789012-xyz or temp IDs
-    const isUpdate = editingInvoice && editingInvoice.id && /^inv-\d+$/.test(editingInvoice.id);
+    // Check if it's an update - has an ID and it's not empty
+    // This works for both original mock IDs (inv-0001) and newly created ones (inv-1736789012-xyz or temp-xxx)
+    const isUpdate = editingInvoice && editingInvoice.id && editingInvoice.id.trim() !== '';
     
     if (isUpdate) {
-      const previousInvoice = editingInvoice;
-      setUndoState({ message: 'Invoice updated', invoice: previousInvoice, action: 'update' });
+      const previousInvoice = { ...editingInvoice };
       
       await updateInvoiceMutation.mutateAsync({ 
         id: editingInvoice.id, 
         data: { ...data, companyId: 'comp-1' }
       });
+      
+      setUndoState({ message: 'Invoice updated', invoice: previousInvoice, action: 'update' });
     } else {
       const tempId = `temp-${Date.now()}`;
       const invoiceData = { 
@@ -210,7 +211,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       
       const tempInvoice: Invoice = {
         id: tempId,
-        docNumber: `INV-TEMP`,
+        docNumber: `INV-TEMP-${Date.now().toString().slice(-6)}`,
         txnDate: data.txnDate || new Date().toISOString().split('T')[0],
         dueDate: data.dueDate || '',
         customer: data.customer || '',
@@ -232,7 +233,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       
       setUndoState({ message: 'Invoice created', invoice: tempInvoice, action: 'create' });
     }
-  }, [editingInvoice, createInvoiceMutation, updateInvoiceMutation]);
+  }, [editingInvoice, updateInvoiceMutation, queryClient]);
 
   const handleSaveAndClose = useCallback(async (data: Partial<Invoice>) => {
     await handleSave(data);
@@ -249,17 +250,18 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       syncStatus: 'local_only'
     };
     
-    // Check if it's an update (has ID that matches mock data pattern: inv-1, inv-2, etc.)
-    const isUpdate = editingInvoice && editingInvoice.id && /^inv-\d+$/.test(editingInvoice.id);
+    // Check if it's an update - has an ID and it's not empty
+    const isUpdate = editingInvoice && editingInvoice.id && editingInvoice.id.trim() !== '';
     
     if (isUpdate) {
-      const previousInvoice = editingInvoice;
-      setUndoState({ message: 'Invoice sent', invoice: previousInvoice, action: 'update' });
+      const previousInvoice = { ...editingInvoice };
       
       await updateInvoiceMutation.mutateAsync({ 
         id: editingInvoice.id, 
         data: invoiceData
       });
+      
+      setUndoState({ message: 'Invoice sent', invoice: previousInvoice, action: 'update' });
     } else {
       const tempId = `temp-${Date.now()}`;
       
@@ -270,7 +272,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       
       const tempInvoice: Invoice = {
         id: tempId,
-        docNumber: `INV-TEMP`,
+        docNumber: `INV-TEMP-${Date.now().toString().slice(-6)}`,
         txnDate: invoiceData.txnDate || new Date().toISOString().split('T')[0],
         dueDate: invoiceData.dueDate || '',
         customer: invoiceData.customer || '',
@@ -295,19 +297,26 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
     
     setFormOpen(false);
     setEditingInvoice(null);
-  }, [editingInvoice, updateInvoiceMutation]);
+  }, [editingInvoice, updateInvoiceMutation, queryClient]);
 
   const handleUndo = useCallback(() => {
     if (!undoState) return;
     
     if (undoState.action === 'create') {
       dataService.rollbackInvoice(undoState.invoice.id);
-      // Invalidate React Query cache so it refetches and removes the invoice from list
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success('Invoice creation undone');
+    } else if (undoState.action === 'update') {
+      // For updates, revert to previous state
+      updateInvoiceMutation.mutate({ 
+        id: undoState.invoice.id, 
+        data: undoState.invoice 
+      });
+      toast.success('Invoice update undone');
     }
     
     setUndoState(null);
-  }, [undoState, queryClient]);
+  }, [undoState, queryClient, updateInvoiceMutation]);
 
   const handleDuplicateFromForm = useCallback(() => {
     if (editingInvoice && editingInvoice.id) {
