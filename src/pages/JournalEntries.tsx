@@ -10,6 +10,7 @@ import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
 import { JournalEntry } from '@/data/mockJournalEntries';
 import { useJournalEntries, useCreateJournalEntry, useUpdateJournalEntry } from '@/hooks/useJournalEntries';
+import { useQueryClient } from '@tanstack/react-query';
 import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
@@ -41,6 +42,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const { data: entries = [], isLoading, error } = useJournalEntries('comp-1');
+  const queryClient = useQueryClient();
   const createJournalEntryMutation = useCreateJournalEntry();
   const updateJournalEntryMutation = useUpdateJournalEntry();
   const [formOpen, setFormOpen] = useState(false);
@@ -163,7 +165,11 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback(async (data: Partial<JournalEntry>) => {
-    if (editingEntry && editingEntry.id) {
+    // Check if it's an update (has ID that matches mock data pattern: je-1, je-2, etc.)
+    // NOT generated IDs like je-1736789012-xyz or temp IDs
+    const isUpdate = editingEntry && editingEntry.id && /^je-\d+$/.test(editingEntry.id);
+    
+    if (isUpdate) {
       const previousEntry = editingEntry;
       setUndoState({ message: 'Journal entry updated', entry: previousEntry, action: 'update' });
       
@@ -176,6 +182,9 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
       const entryData = { ...data, companyId: 'comp-1' };
       
       dataService.optimisticCreateJournalEntry(tempId, entryData);
+      
+      // Invalidate React Query cache so it refetches from dataService/IndexedDB
+      queryClient.invalidateQueries({ queryKey: ['journalEntries'] });
       
       const tempEntry: JournalEntry = {
         id: tempId,
@@ -192,13 +201,11 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
       };
       
       setUndoState({ message: 'Journal entry created', entry: tempEntry, action: 'create' });
-      
-      createJournalEntryMutation.mutate(entryData);
     }
-  }, [editingEntry, createJournalEntryMutation, updateJournalEntryMutation]);
+  }, [editingEntry, updateJournalEntryMutation]);
 
-  const handleSaveAndClose = useCallback((data: Partial<JournalEntry>) => {
-    handleSave(data);
+  const handleSaveAndClose = useCallback(async (data: Partial<JournalEntry>) => {
+    await handleSave(data);
     setFormOpen(false);
     setEditingEntry(null);
   }, [handleSave]);
@@ -208,10 +215,12 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
     
     if (undoState.action === 'create') {
       dataService.rollbackJournalEntry(undoState.entry.id);
+      // Invalidate React Query cache so it refetches and removes the entry from list
+      queryClient.invalidateQueries({ queryKey: ['journalEntries'] });
     }
     
     setUndoState(null);
-  }, [undoState]);
+  }, [undoState, queryClient]);
 
   const handleDuplicateFromForm = useCallback(() => {
     if (editingEntry && editingEntry.id) {

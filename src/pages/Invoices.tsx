@@ -10,6 +10,7 @@ import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
 import { Invoice, InvoiceStatus } from '@/data/mockInvoices';
 import { useInvoices, useCreateInvoice, useUpdateInvoice } from '@/hooks/useInvoices';
+import { useQueryClient } from '@tanstack/react-query';
 import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
@@ -56,6 +57,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const { data: invoices = [], isLoading, error } = useInvoices('comp-1');
+  const queryClient = useQueryClient();
   const createInvoiceMutation = useCreateInvoice();
   const updateInvoiceMutation = useUpdateInvoice();
   const [formOpen, setFormOpen] = useState(false);
@@ -180,7 +182,11 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback(async (data: Partial<Invoice>) => {
-    if (editingInvoice && editingInvoice.id) {
+    // Check if it's an update (has ID that matches mock data pattern: inv-1, inv-2, etc.)
+    // NOT generated IDs like inv-1736789012-xyz or temp IDs
+    const isUpdate = editingInvoice && editingInvoice.id && /^inv-\d+$/.test(editingInvoice.id);
+    
+    if (isUpdate) {
       const previousInvoice = editingInvoice;
       setUndoState({ message: 'Invoice updated', invoice: previousInvoice, action: 'update' });
       
@@ -198,6 +204,9 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       };
       
       dataService.optimisticCreateInvoice(tempId, invoiceData);
+      
+      // Invalidate React Query cache so it refetches from dataService/IndexedDB
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
       
       const tempInvoice: Invoice = {
         id: tempId,
@@ -240,7 +249,10 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       syncStatus: 'local_only'
     };
     
-    if (editingInvoice && editingInvoice.id) {
+    // Check if it's an update (has ID that matches mock data pattern: inv-1, inv-2, etc.)
+    const isUpdate = editingInvoice && editingInvoice.id && /^inv-\d+$/.test(editingInvoice.id);
+    
+    if (isUpdate) {
       const previousInvoice = editingInvoice;
       setUndoState({ message: 'Invoice sent', invoice: previousInvoice, action: 'update' });
       
@@ -252,6 +264,9 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       const tempId = `temp-${Date.now()}`;
       
       dataService.optimisticCreateInvoice(tempId, invoiceData);
+      
+      // Invalidate React Query cache so it refetches from dataService/IndexedDB
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
       
       const tempInvoice: Invoice = {
         id: tempId,
@@ -287,10 +302,12 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
     
     if (undoState.action === 'create') {
       dataService.rollbackInvoice(undoState.invoice.id);
+      // Invalidate React Query cache so it refetches and removes the invoice from list
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
     }
     
     setUndoState(null);
-  }, [undoState]);
+  }, [undoState, queryClient]);
 
   const handleDuplicateFromForm = useCallback(() => {
     if (editingInvoice && editingInvoice.id) {

@@ -10,6 +10,7 @@ import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
 import { Bill } from '@/data/mockBills';
 import { useBills, useCreateBill, useUpdateBill } from '@/hooks/useBills';
+import { useQueryClient } from '@tanstack/react-query';
 import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
@@ -45,6 +46,7 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: bills = [], isLoading, error } = useBills('comp-1');
+  const queryClient = useQueryClient();
   const createBillMutation = useCreateBill();
   const updateBillMutation = useUpdateBill();
   const [searchQuery, setSearchQuery] = useState('');
@@ -183,7 +185,11 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback(async (billData: Partial<Bill>) => {
-    if (editingBill && editingBill.id) {
+    // Check if it's an update (has ID that matches mock data pattern: bill-1, bill-2, etc.)
+    // NOT generated IDs like bill-1736789012-xyz or temp IDs
+    const isUpdate = editingBill && editingBill.id && /^bill-\d+$/.test(editingBill.id);
+    
+    if (isUpdate) {
       setUndoState({
         message: 'Bill updated',
         action: 'update',
@@ -199,18 +205,19 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
       
       dataService.optimisticCreateBill(tempId, dataWithCompany);
       
+      // Invalidate React Query cache so it refetches from dataService/IndexedDB
+      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      
       setUndoState({
         message: 'Bill created',
         billId: tempId,
         action: 'create',
       });
-      
-      createBillMutation.mutate(dataWithCompany);
     }
   }, [editingBill, createBillMutation, updateBillMutation]);
 
-  const handleSaveAndClose = useCallback((billData: Partial<Bill>) => {
-    handleSave(billData);
+  const handleSaveAndClose = useCallback(async (billData: Partial<Bill>) => {
+    await handleSave(billData);
     handleCloseForm();
   }, [handleSave, handleCloseForm]);
 
@@ -218,10 +225,12 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
     if (undoState) {
       if (undoState.action === 'create' && undoState.billId) {
         dataService.rollbackBill(undoState.billId);
+        // Invalidate React Query cache so it refetches and removes the bill from list
+        queryClient.invalidateQueries({ queryKey: ['bills'] });
       }
       setUndoState(null);
     }
-  }, [undoState]);
+  }, [undoState, queryClient]);
 
   const handleDismissUndo = useCallback(() => {
     setUndoState(null);

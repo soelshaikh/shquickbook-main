@@ -45,6 +45,16 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
   const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
+  // Reset form when invoice prop changes
+  useEffect(() => {
+    setCustomerId(invoice?.customerId || '');
+    setTxnDate(invoice?.txnDate || new Date().toISOString().split('T')[0]);
+    setDueDate(invoice?.dueDate || '');
+    setLineItems(invoice?.lineItems || [defaultLineItem()]);
+    setTaxRate(invoice?.taxRate || 0.0875);
+    setMemo(invoice?.memo || '');
+  }, [invoice]);
+
   // Set default due date (30 days from invoice date)
   useEffect(() => {
     if (txnDate && !dueDate) {
