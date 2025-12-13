@@ -5,7 +5,8 @@ import { FilterBar, FilterConfig, useFilterBar } from '@/components/shared/Filte
 import { TransactionList } from '@/components/transactions/TransactionList';
 import { TransactionDetail } from '@/components/transactions/TransactionDetail';
 import { ExportButton } from '@/components/shared/ExportButton';
-import { mockTransactions, Transaction } from '@/data/mockTransactions';
+import { Transaction } from '@/data/mockTransactions';
+import { useTransactions } from '@/hooks/useTransactions';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useKeyboard } from '@/contexts/KeyboardContext';
@@ -51,6 +52,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
+  const { data: transactions = [], isLoading, error } = useTransactions('comp-1');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'date' | 'memo' | null>(null);
@@ -70,7 +72,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
   }, [searchParams, setSearchParams]);
 
   const filteredTransactions = useMemo(() => {
-    let result = mockTransactions;
+    let result = transactions;
     
     // Apply filter chips
     filterBar.filters.forEach(chip => {
@@ -95,7 +97,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
     }
     
     return result;
-  }, [searchQuery, filterBar.filters, filterBar.isOpen]);
+  }, [transactions, searchQuery, filterBar.filters, filterBar.isOpen]);
 
   // Export handler
   const handleExport = useCallback(() => {

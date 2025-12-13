@@ -8,7 +8,8 @@ import { BillList } from '@/components/bills/BillList';
 import { BillForm } from '@/components/bills/BillForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
-import { mockBills, Bill } from '@/data/mockBills';
+import { Bill } from '@/data/mockBills';
+import { useBills } from '@/hooks/useBills';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
@@ -42,13 +43,12 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   usePagePerformance('Bills');
   
   const [searchParams, setSearchParams] = useSearchParams();
-  const [bills, setBills] = useState<Bill[]>(mockBills);
+  const { data: bills = [], isLoading, error } = useBills('comp-1');
   const [searchQuery, setSearchQuery] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [undoState, setUndoState] = useState<{
     message: string;
-    previousBills: Bill[];
   } | null>(null);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
 
@@ -178,24 +178,10 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   }, []);
 
   const handleSave = useCallback((billData: Partial<Bill>) => {
-    const previousBills = [...bills];
-    
-    setBills(prev => {
-      const existingIndex = prev.findIndex(b => b.id === billData.id);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = { ...prev[existingIndex], ...billData } as Bill;
-        return updated;
-      } else {
-        return [billData as Bill, ...prev];
-      }
-    });
-
     setUndoState({
       message: editingBill ? 'Bill updated' : 'Bill created',
-      previousBills,
     });
-  }, [bills, editingBill]);
+  }, [editingBill]);
 
   const handleSaveAndClose = useCallback((billData: Partial<Bill>) => {
     handleSave(billData);
@@ -204,7 +190,6 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
 
   const handleUndo = useCallback(() => {
     if (undoState) {
-      setBills(undoState.previousBills);
       setUndoState(null);
     }
   }, [undoState]);

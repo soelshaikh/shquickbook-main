@@ -8,7 +8,8 @@ import { InvoiceList } from '@/components/invoices/InvoiceList';
 import { InvoiceForm } from '@/components/invoices/InvoiceForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
-import { mockInvoices, Invoice, InvoiceStatus } from '@/data/mockInvoices';
+import { Invoice, InvoiceStatus } from '@/data/mockInvoices';
+import { useInvoices } from '@/hooks/useInvoices';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
@@ -53,7 +54,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const [invoices, setInvoices] = useState(mockInvoices);
+  const { data: invoices = [], isLoading, error } = useInvoices('comp-1');
   const [formOpen, setFormOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -175,41 +176,33 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
     setSelectedInvoice(invoice);
   }, []);
 
-  const createInvoice = useCallback((data: Partial<Invoice>): Invoice => {
-    const newInvoice: Invoice = {
-      id: `inv-${Date.now()}`,
-      docNumber: `INV-${String(invoices.length + 1001).padStart(5, '0')}`,
-      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
-      dueDate: data.dueDate || '',
-      customer: data.customer || '',
-      customerId: data.customerId || '',
-      lineItems: data.lineItems || [],
-      subtotal: data.subtotal || 0,
-      taxRate: data.taxRate || 0,
-      taxAmount: data.taxAmount || 0,
-      total: data.total || 0,
-      balance: data.balance || data.total || 0,
-      status: data.status || 'draft',
-      emailStatus: 'not_sent',
-      syncStatus: 'local_only',
-      memo: data.memo || '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    return newInvoice;
-  }, [invoices.length]);
-
   const handleSave = useCallback((data: Partial<Invoice>) => {
     if (editingInvoice) {
-      const updated = { ...editingInvoice, ...data, updatedAt: new Date().toISOString() };
-      setInvoices(prev => prev.map(inv => inv.id === editingInvoice.id ? updated : inv));
       setUndoState({ message: 'Invoice updated', invoice: editingInvoice, action: 'update' });
     } else {
-      const newInvoice = createInvoice(data);
-      setInvoices(prev => [newInvoice, ...prev]);
-      setUndoState({ message: 'Invoice created', invoice: newInvoice, action: 'create' });
+      const tempInvoice: Invoice = {
+        id: `temp-${Date.now()}`,
+        docNumber: `INV-TEMP`,
+        txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+        dueDate: data.dueDate || '',
+        customer: data.customer || '',
+        customerId: data.customerId || '',
+        lineItems: data.lineItems || [],
+        subtotal: data.subtotal || 0,
+        taxRate: data.taxRate || 0,
+        taxAmount: data.taxAmount || 0,
+        total: data.total || 0,
+        balance: data.balance || data.total || 0,
+        status: data.status || 'draft',
+        emailStatus: 'not_sent',
+        syncStatus: 'local_only',
+        memo: data.memo || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setUndoState({ message: 'Invoice created', invoice: tempInvoice, action: 'create' });
     }
-  }, [editingInvoice, createInvoice]);
+  }, [editingInvoice]);
 
   const handleSaveAndClose = useCallback((data: Partial<Invoice>) => {
     handleSave(data);
@@ -220,27 +213,36 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   const handleSend = useCallback((data: Partial<Invoice>) => {
     const invoiceData = { ...data, status: 'sent' as InvoiceStatus, emailStatus: 'sent' as const };
     if (editingInvoice) {
-      const updated = { ...editingInvoice, ...invoiceData, updatedAt: new Date().toISOString() };
-      setInvoices(prev => prev.map(inv => inv.id === editingInvoice.id ? updated : inv));
       setUndoState({ message: 'Invoice sent', invoice: editingInvoice, action: 'update' });
     } else {
-      const newInvoice = createInvoice(invoiceData);
-      setInvoices(prev => [newInvoice, ...prev]);
-      setUndoState({ message: 'Invoice created and sent', invoice: newInvoice, action: 'create' });
+      const tempInvoice: Invoice = {
+        id: `temp-${Date.now()}`,
+        docNumber: `INV-TEMP`,
+        txnDate: invoiceData.txnDate || new Date().toISOString().split('T')[0],
+        dueDate: invoiceData.dueDate || '',
+        customer: invoiceData.customer || '',
+        customerId: invoiceData.customerId || '',
+        lineItems: invoiceData.lineItems || [],
+        subtotal: invoiceData.subtotal || 0,
+        taxRate: invoiceData.taxRate || 0,
+        taxAmount: invoiceData.taxAmount || 0,
+        total: invoiceData.total || 0,
+        balance: invoiceData.balance || invoiceData.total || 0,
+        status: 'sent',
+        emailStatus: 'sent',
+        syncStatus: 'local_only',
+        memo: invoiceData.memo || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setUndoState({ message: 'Invoice created and sent', invoice: tempInvoice, action: 'create' });
     }
     setFormOpen(false);
     setEditingInvoice(null);
-  }, [editingInvoice, createInvoice]);
+  }, [editingInvoice]);
 
   const handleUndo = useCallback(() => {
     if (!undoState) return;
-    
-    if (undoState.action === 'create') {
-      setInvoices(prev => prev.filter(inv => inv.id !== undoState.invoice.id));
-    } else if (undoState.action === 'update') {
-      setInvoices(prev => prev.map(inv => inv.id === undoState.invoice.id ? undoState.invoice : inv));
-    }
-    
     setUndoState(null);
   }, [undoState]);
 

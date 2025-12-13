@@ -8,7 +8,8 @@ import { JournalEntryList, JournalEntryListRef } from '@/components/journal-entr
 import { JournalEntryForm } from '@/components/journal-entries/JournalEntryForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
-import { mockJournalEntries, JournalEntry } from '@/data/mockJournalEntries';
+import { JournalEntry } from '@/data/mockJournalEntries';
+import { useJournalEntries } from '@/hooks/useJournalEntries';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
@@ -38,7 +39,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const [entries, setEntries] = useState(mockJournalEntries);
+  const { data: entries = [], isLoading, error } = useJournalEntries('comp-1');
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -158,34 +159,26 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
     setSelectedEntry(entry);
   }, []);
 
-  const createEntry = useCallback((data: Partial<JournalEntry>): JournalEntry => {
-    const newEntry: JournalEntry = {
-      id: `je-${Date.now()}`,
-      docNumber: `JE-${String(entries.length + 1001).padStart(5, '0')}`,
-      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
-      lines: data.lines || [],
-      totalDebit: data.totalDebit || 0,
-      totalCredit: data.totalCredit || 0,
-      memo: data.memo || '',
-      status: data.status || 'draft',
-      syncStatus: 'local_only',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    return newEntry;
-  }, [entries.length]);
-
   const handleSave = useCallback((data: Partial<JournalEntry>) => {
     if (editingEntry) {
-      const updated = { ...editingEntry, ...data, updatedAt: new Date().toISOString() };
-      setEntries(prev => prev.map(e => e.id === editingEntry.id ? updated : e));
       setUndoState({ message: 'Journal entry updated', entry: editingEntry, action: 'update' });
     } else {
-      const newEntry = createEntry(data);
-      setEntries(prev => [newEntry, ...prev]);
-      setUndoState({ message: 'Journal entry created', entry: newEntry, action: 'create' });
+      const tempEntry: JournalEntry = {
+        id: `temp-${Date.now()}`,
+        docNumber: `JE-TEMP`,
+        txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+        lines: data.lines || [],
+        totalDebit: data.totalDebit || 0,
+        totalCredit: data.totalCredit || 0,
+        memo: data.memo || '',
+        status: data.status || 'draft',
+        syncStatus: 'local_only',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setUndoState({ message: 'Journal entry created', entry: tempEntry, action: 'create' });
     }
-  }, [editingEntry, createEntry]);
+  }, [editingEntry]);
 
   const handleSaveAndClose = useCallback((data: Partial<JournalEntry>) => {
     handleSave(data);
@@ -195,13 +188,6 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
 
   const handleUndo = useCallback(() => {
     if (!undoState) return;
-    
-    if (undoState.action === 'create') {
-      setEntries(prev => prev.filter(e => e.id !== undoState.entry.id));
-    } else if (undoState.action === 'update') {
-      setEntries(prev => prev.map(e => e.id === undoState.entry.id ? undoState.entry : e));
-    }
-    
     setUndoState(null);
   }, [undoState]);
 
