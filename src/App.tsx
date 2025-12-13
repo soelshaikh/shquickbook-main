@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { useConnection } from "@/contexts/ConnectionContext";
+import ErrorBoundary from "@/components/shared/ErrorBoundary";
 
 // Pages
 import Transactions from "./pages/Transactions";
@@ -26,16 +27,18 @@ function AppContent() {
 
   return (
     <AppShell>
-      <Routes>
-        <Route path="/" element={<Navigate to="/transactions" replace />} />
-        <Route path="/transactions" element={<Transactions />} />
-        <Route path="/invoices" element={<Invoices />} />
-        <Route path="/bills" element={<Bills />} />
-        <Route path="/journal-entries" element={<JournalEntries />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/connect" element={<Navigate to="/transactions" replace />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<Navigate to="/transactions" replace />} />
+          <Route path="/transactions" element={<Transactions />} />
+          <Route path="/invoices" element={<Invoices />} />
+          <Route path="/bills" element={<Bills />} />
+          <Route path="/journal-entries" element={<JournalEntries />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/connect" element={<Navigate to="/transactions" replace />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </ErrorBoundary>
     </AppShell>
   );
 }

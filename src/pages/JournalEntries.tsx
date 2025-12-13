@@ -17,6 +17,10 @@ import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
 import { exportToCSV } from '@/lib/csvExport';
 import { journalEntryExportColumns } from '@/lib/exportConfigs';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
+import { JournalEntriesErrorFallback } from '@/components/shared/FeatureErrorFallback';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2 } from 'lucide-react';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -41,7 +45,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: entries = [], isLoading, error } = useJournalEntries('comp-1');
+  const { data: entries = [], isLoading, isFetching, error } = useJournalEntries('comp-1');
   const queryClient = useQueryClient();
   const createJournalEntryMutation = useCreateJournalEntry();
   const updateJournalEntryMutation = useUpdateJournalEntry();
@@ -250,64 +254,94 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   }, [editingEntry]);
 
   return (
-    <div ref={ref} className="h-full flex flex-col">
-      <PageToolbar
-        title="Journal Entries"
-        searchPlaceholder="Search journal entries..."
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchInputRef={searchInputRef}
-        hideSearch={filterBar.isOpen}
-        actions={
-          <div className="flex items-center gap-2">
-            <ExportButton onClick={handleExport} itemCount={filteredEntries.length} />
-            <Button size="sm" onClick={handleNewEntry} className="h-8 gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              New Entry
-              <kbd className="kbd ml-1 text-[10px]">J</kbd>
-            </Button>
-          </div>
-        }
-      />
-
-      {/* Filter Bar */}
-      {filterBar.isOpen && (
-        <FilterBar
-          filters={filterBar.filters}
-          onFiltersChange={filterBar.setFilters}
-          filterConfigs={FILTER_CONFIGS}
-          placeholder="Filter journal entries... (Tab to lock)"
-          onClose={filterBar.close}
+    <ErrorBoundary fallback={<JournalEntriesErrorFallback />}>
+      <div ref={ref} className="h-full flex flex-col">
+        <PageToolbar
+          title="Journal Entries"
+          searchPlaceholder="Search journal entries..."
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchInputRef={searchInputRef}
+          hideSearch={filterBar.isOpen}
+          actions={
+            <div className="flex items-center gap-2">
+              <ExportButton onClick={handleExport} itemCount={filteredEntries.length} />
+              <Button size="sm" onClick={handleNewEntry} className="h-8 gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                New Entry
+                <kbd className="kbd ml-1 text-[10px]">J</kbd>
+              </Button>
+            </div>
+          }
         />
-      )}
 
-      <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
-        <JournalEntryList
-          ref={listRef}
-          entries={filteredEntries}
-          onEntryOpen={handleEntryOpen}
-          onEntrySelect={handleEntrySelect}
+        {/* Filter Bar */}
+        {filterBar.isOpen && (
+          <FilterBar
+            filters={filterBar.filters}
+            onFiltersChange={filterBar.setFilters}
+            filterConfigs={FILTER_CONFIGS}
+            placeholder="Filter journal entries... (Tab to lock)"
+            onClose={filterBar.close}
+          />
+        )}
+
+        <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
+          {/* Initial loading state - show skeleton */}
+          {isLoading ? (
+            <div className="p-4 space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : filteredEntries.length === 0 ? (
+            /* Empty state - no data after loading */
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <p>No journal entries found</p>
+            </div>
+          ) : (
+            /* Normal state - render list with data */
+            <>
+              <JournalEntryList
+                ref={listRef}
+                entries={filteredEntries}
+                onEntryOpen={handleEntryOpen}
+                onEntrySelect={handleEntrySelect}
+              />
+              {/* Background fetching indicator - subtle, non-blocking */}
+              {isFetching && (
+                <div className="absolute top-2 right-2 pointer-events-none">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <JournalEntryForm
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          entry={editingEntry}
+          onSave={handleSave}
+          onSaveAndClose={handleSaveAndClose}
+          onDuplicate={handleDuplicateFromForm}
         />
+
+        {undoState && (
+          <UndoToast
+            message={undoState.message}
+            onUndo={handleUndo}
+            onDismiss={() => setUndoState(null)}
+            duration={3000}
+          />
+        )}
       </div>
-
-      <JournalEntryForm
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        entry={editingEntry}
-        onSave={handleSave}
-        onSaveAndClose={handleSaveAndClose}
-        onDuplicate={handleDuplicateFromForm}
-      />
-
-      {undoState && (
-        <UndoToast
-          message={undoState.message}
-          onUndo={handleUndo}
-          onDismiss={() => setUndoState(null)}
-          duration={3000}
-        />
-      )}
-    </div>
+    </ErrorBoundary>
   );
 });
 

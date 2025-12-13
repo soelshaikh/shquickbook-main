@@ -17,6 +17,10 @@ import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
 import { exportToCSV } from '@/lib/csvExport';
 import { invoiceExportColumns } from '@/lib/exportConfigs';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
+import { InvoicesErrorFallback } from '@/components/shared/FeatureErrorFallback';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2 } from 'lucide-react';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -56,7 +60,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: invoices = [], isLoading, error } = useInvoices('comp-1');
+  const { data: invoices = [], isLoading, isFetching, error } = useInvoices('comp-1');
   const queryClient = useQueryClient();
   const createInvoiceMutation = useCreateInvoice();
   const updateInvoiceMutation = useUpdateInvoice();
@@ -334,64 +338,94 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   }, [editingInvoice]);
 
   return (
-    <div ref={ref} className="h-full flex flex-col">
-      <PageToolbar
-        title="Invoices"
-        searchPlaceholder="Search invoices..."
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchInputRef={searchInputRef}
-        hideSearch={filterBar.isOpen}
-        actions={
-          <div className="flex items-center gap-2">
-            <ExportButton onClick={handleExport} itemCount={filteredInvoices.length} />
-            <Button size="sm" onClick={handleNewInvoice} className="h-8 gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              New Invoice
-              <kbd className="kbd ml-1 text-[10px]">I</kbd>
-            </Button>
-          </div>
-        }
-      />
-
-      {/* Filter Bar */}
-      {filterBar.isOpen && (
-        <FilterBar
-          filters={filterBar.filters}
-          onFiltersChange={filterBar.setFilters}
-          filterConfigs={FILTER_CONFIGS}
-          placeholder="Filter invoices... (Tab to lock)"
-          onClose={filterBar.close}
+    <ErrorBoundary fallback={<InvoicesErrorFallback />}>
+      <div ref={ref} className="h-full flex flex-col">
+        <PageToolbar
+          title="Invoices"
+          searchPlaceholder="Search invoices..."
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchInputRef={searchInputRef}
+          hideSearch={filterBar.isOpen}
+          actions={
+            <div className="flex items-center gap-2">
+              <ExportButton onClick={handleExport} itemCount={filteredInvoices.length} />
+              <Button size="sm" onClick={handleNewInvoice} className="h-8 gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                New Invoice
+                <kbd className="kbd ml-1 text-[10px]">I</kbd>
+              </Button>
+            </div>
+          }
         />
-      )}
 
-      <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
-        <InvoiceList 
-          invoices={filteredInvoices}
-          onInvoiceOpen={handleInvoiceOpen}
-          onInvoiceSelect={handleInvoiceSelect}
+        {/* Filter Bar */}
+        {filterBar.isOpen && (
+          <FilterBar
+            filters={filterBar.filters}
+            onFiltersChange={filterBar.setFilters}
+            filterConfigs={FILTER_CONFIGS}
+            placeholder="Filter invoices... (Tab to lock)"
+            onClose={filterBar.close}
+          />
+        )}
+
+        <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
+          {/* Initial loading state - show skeleton */}
+          {isLoading ? (
+            <div className="p-4 space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : filteredInvoices.length === 0 ? (
+            /* Empty state - no data after loading */
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <p>No invoices found</p>
+            </div>
+          ) : (
+            /* Normal state - render list with data */
+            <>
+              <InvoiceList 
+                invoices={filteredInvoices}
+                onInvoiceOpen={handleInvoiceOpen}
+                onInvoiceSelect={handleInvoiceSelect}
+              />
+              {/* Background fetching indicator - subtle, non-blocking */}
+              {isFetching && (
+                <div className="absolute top-2 right-2 pointer-events-none">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <InvoiceForm
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          invoice={editingInvoice}
+          onSave={handleSave}
+          onSaveAndClose={handleSaveAndClose}
+          onSend={handleSend}
+          onDuplicate={handleDuplicateFromForm}
         />
+
+        {undoState && (
+          <UndoToast
+            message={undoState.message}
+            onUndo={handleUndo}
+            onDismiss={() => setUndoState(null)}
+            duration={3000}
+          />
+        )}
       </div>
-
-      <InvoiceForm
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        invoice={editingInvoice}
-        onSave={handleSave}
-        onSaveAndClose={handleSaveAndClose}
-        onSend={handleSend}
-        onDuplicate={handleDuplicateFromForm}
-      />
-
-      {undoState && (
-        <UndoToast
-          message={undoState.message}
-          onUndo={handleUndo}
-          onDismiss={() => setUndoState(null)}
-          duration={3000}
-        />
-      )}
-    </div>
+    </ErrorBoundary>
   );
 });
 

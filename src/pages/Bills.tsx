@@ -17,6 +17,10 @@ import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
 import { exportToCSV } from '@/lib/csvExport';
 import { billExportColumns } from '@/lib/exportConfigs';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
+import { BillsErrorFallback } from '@/components/shared/FeatureErrorFallback';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2 } from 'lucide-react';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -45,7 +49,7 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   usePagePerformance('Bills');
   
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: bills = [], isLoading, error } = useBills('comp-1');
+  const { data: bills = [], isLoading, isFetching, error } = useBills('comp-1');
   const queryClient = useQueryClient();
   const createBillMutation = useCreateBill();
   const updateBillMutation = useUpdateBill();
@@ -268,62 +272,92 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   }, [editingBill]);
 
   return (
-    <div ref={ref} className="h-full flex flex-col">
-      <PageToolbar
-        title="Bills"
-        searchPlaceholder="Search bills..."
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchInputRef={searchInputRef}
-        hideSearch={filterBar.isOpen}
-        actions={
-          <div className="flex items-center gap-2">
-            <ExportButton onClick={handleExport} itemCount={filteredBills.length} />
-            <Button size="sm" onClick={handleNewBill} className="h-8 gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              New Bill
-              <kbd className="kbd ml-1 text-[10px]">B</kbd>
-            </Button>
-          </div>
-        }
-      />
-
-      {/* Filter Bar */}
-      {filterBar.isOpen && (
-        <FilterBar
-          filters={filterBar.filters}
-          onFiltersChange={filterBar.setFilters}
-          filterConfigs={FILTER_CONFIGS}
-          placeholder="Filter bills... (Tab to lock)"
-          onClose={filterBar.close}
+    <ErrorBoundary fallback={<BillsErrorFallback />}>
+      <div ref={ref} className="h-full flex flex-col">
+        <PageToolbar
+          title="Bills"
+          searchPlaceholder="Search bills..."
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchInputRef={searchInputRef}
+          hideSearch={filterBar.isOpen}
+          actions={
+            <div className="flex items-center gap-2">
+              <ExportButton onClick={handleExport} itemCount={filteredBills.length} />
+              <Button size="sm" onClick={handleNewBill} className="h-8 gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                New Bill
+                <kbd className="kbd ml-1 text-[10px]">B</kbd>
+              </Button>
+            </div>
+          }
         />
-      )}
 
-      <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
-        <BillList
-          bills={filteredBills}
-          onEdit={handleEditBill}
-          onSelect={handleBillSelect}
+        {/* Filter Bar */}
+        {filterBar.isOpen && (
+          <FilterBar
+            filters={filterBar.filters}
+            onFiltersChange={filterBar.setFilters}
+            filterConfigs={FILTER_CONFIGS}
+            placeholder="Filter bills... (Tab to lock)"
+            onClose={filterBar.close}
+          />
+        )}
+
+        <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
+          {/* Initial loading state - show skeleton */}
+          {isLoading ? (
+            <div className="p-4 space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : filteredBills.length === 0 ? (
+            /* Empty state - no data after loading */
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <p>No bills found</p>
+            </div>
+          ) : (
+            /* Normal state - render list with data */
+            <>
+              <BillList
+                bills={filteredBills}
+                onEdit={handleEditBill}
+                onSelect={handleBillSelect}
+              />
+              {/* Background fetching indicator - subtle, non-blocking */}
+              {isFetching && (
+                <div className="absolute top-2 right-2 pointer-events-none">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <BillForm
+          bill={editingBill}
+          isOpen={isFormOpen}
+          onClose={handleCloseForm}
+          onSave={handleSave}
+          onSaveAndClose={handleSaveAndClose}
+          onDuplicate={handleDuplicateFromForm}
         />
+
+        {undoState && (
+          <UndoToast
+            message={undoState.message}
+            onUndo={handleUndo}
+            onDismiss={handleDismissUndo}
+          />
+        )}
       </div>
-
-      <BillForm
-        bill={editingBill}
-        isOpen={isFormOpen}
-        onClose={handleCloseForm}
-        onSave={handleSave}
-        onSaveAndClose={handleSaveAndClose}
-        onDuplicate={handleDuplicateFromForm}
-      />
-
-      {undoState && (
-        <UndoToast
-          message={undoState.message}
-          onUndo={handleUndo}
-          onDismiss={handleDismissUndo}
-        />
-      )}
-    </div>
+    </ErrorBoundary>
   );
 });
 

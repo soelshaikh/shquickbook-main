@@ -13,6 +13,10 @@ import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { exportToCSV } from '@/lib/csvExport';
 import { transactionExportColumns } from '@/lib/exportConfigs';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
+import { TransactionsErrorFallback } from '@/components/shared/FeatureErrorFallback';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2 } from 'lucide-react';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -52,7 +56,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: transactions = [], isLoading, error } = useTransactions('comp-1');
+  const { data: transactions = [], isLoading, isFetching, error } = useTransactions('comp-1');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'date' | 'memo' | null>(null);
@@ -253,11 +257,39 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
       )}
 
       <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
-        <TransactionList 
-          transactions={filteredTransactions}
-          onTransactionSelect={setSelectedTransaction}
-          onTransactionOpen={handleTransactionSelect}
-        />
+        {/* Initial loading state - show skeleton */}
+        {isLoading ? (
+          <div className="p-4 space-y-3">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : filteredTransactions.length === 0 ? (
+          /* Empty state - no data after loading */
+          <div className="flex items-center justify-center h-full text-muted-foreground">
+            <p>No transactions found</p>
+          </div>
+        ) : (
+          /* Normal state - render list with data */
+          <>
+            <TransactionList 
+              transactions={filteredTransactions}
+              onTransactionSelect={setSelectedTransaction}
+              onTransactionOpen={handleTransactionSelect}
+            />
+            {/* Background fetching indicator - subtle, non-blocking */}
+            {isFetching && (
+              <div className="absolute top-2 right-2 pointer-events-none">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <TransactionDetail
@@ -269,6 +301,14 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
   );
 });
 
-Transactions.displayName = 'Transactions';
+// Wrap with error boundary
+const TransactionsWithErrorBoundary = forwardRef<HTMLDivElement>((props, ref) => (
+  <ErrorBoundary fallback={<TransactionsErrorFallback />}>
+    <Transactions ref={ref} {...props} />
+  </ErrorBoundary>
+));
 
-export default Transactions;
+Transactions.displayName = 'Transactions';
+TransactionsWithErrorBoundary.displayName = 'TransactionsWithErrorBoundary';
+
+export default TransactionsWithErrorBoundary;
