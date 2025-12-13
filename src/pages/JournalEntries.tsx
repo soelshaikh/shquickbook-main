@@ -9,7 +9,8 @@ import { JournalEntryForm } from '@/components/journal-entries/JournalEntryForm'
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
 import { JournalEntry } from '@/data/mockJournalEntries';
-import { useJournalEntries } from '@/hooks/useJournalEntries';
+import { useJournalEntries, useCreateJournalEntry, useUpdateJournalEntry } from '@/hooks/useJournalEntries';
+import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
@@ -40,6 +41,8 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const { data: entries = [], isLoading, error } = useJournalEntries('comp-1');
+  const createJournalEntryMutation = useCreateJournalEntry();
+  const updateJournalEntryMutation = useUpdateJournalEntry();
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -159,12 +162,23 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
     setSelectedEntry(entry);
   }, []);
 
-  const handleSave = useCallback((data: Partial<JournalEntry>) => {
-    if (editingEntry) {
-      setUndoState({ message: 'Journal entry updated', entry: editingEntry, action: 'update' });
+  const handleSave = useCallback(async (data: Partial<JournalEntry>) => {
+    if (editingEntry && editingEntry.id) {
+      const previousEntry = editingEntry;
+      setUndoState({ message: 'Journal entry updated', entry: previousEntry, action: 'update' });
+      
+      await updateJournalEntryMutation.mutateAsync({ 
+        id: editingEntry.id, 
+        data: { ...data, companyId: 'comp-1' }
+      });
     } else {
+      const tempId = `temp-${Date.now()}`;
+      const entryData = { ...data, companyId: 'comp-1' };
+      
+      dataService.optimisticCreateJournalEntry(tempId, entryData);
+      
       const tempEntry: JournalEntry = {
-        id: `temp-${Date.now()}`,
+        id: tempId,
         docNumber: `JE-TEMP`,
         txnDate: data.txnDate || new Date().toISOString().split('T')[0],
         lines: data.lines || [],
@@ -176,9 +190,12 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      
       setUndoState({ message: 'Journal entry created', entry: tempEntry, action: 'create' });
+      
+      createJournalEntryMutation.mutate(entryData);
     }
-  }, [editingEntry]);
+  }, [editingEntry, createJournalEntryMutation, updateJournalEntryMutation]);
 
   const handleSaveAndClose = useCallback((data: Partial<JournalEntry>) => {
     handleSave(data);
@@ -188,6 +205,11 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
 
   const handleUndo = useCallback(() => {
     if (!undoState) return;
+    
+    if (undoState.action === 'create') {
+      dataService.rollbackJournalEntry(undoState.entry.id);
+    }
+    
     setUndoState(null);
   }, [undoState]);
 

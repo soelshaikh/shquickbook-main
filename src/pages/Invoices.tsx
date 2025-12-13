@@ -9,7 +9,8 @@ import { InvoiceForm } from '@/components/invoices/InvoiceForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
 import { Invoice, InvoiceStatus } from '@/data/mockInvoices';
-import { useInvoices } from '@/hooks/useInvoices';
+import { useInvoices, useCreateInvoice, useUpdateInvoice } from '@/hooks/useInvoices';
+import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
@@ -55,6 +56,8 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const { data: invoices = [], isLoading, error } = useInvoices('comp-1');
+  const createInvoiceMutation = useCreateInvoice();
+  const updateInvoiceMutation = useUpdateInvoice();
   const [formOpen, setFormOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -176,17 +179,34 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
     setSelectedInvoice(invoice);
   }, []);
 
-  const handleSave = useCallback((data: Partial<Invoice>) => {
-    if (editingInvoice) {
-      setUndoState({ message: 'Invoice updated', invoice: editingInvoice, action: 'update' });
+  const handleSave = useCallback(async (data: Partial<Invoice>) => {
+    if (editingInvoice && editingInvoice.id) {
+      const previousInvoice = editingInvoice;
+      setUndoState({ message: 'Invoice updated', invoice: previousInvoice, action: 'update' });
+      
+      await updateInvoiceMutation.mutateAsync({ 
+        id: editingInvoice.id, 
+        data: { ...data, companyId: 'comp-1' }
+      });
     } else {
+      const tempId = `temp-${Date.now()}`;
+      const invoiceData = { 
+        ...data, 
+        companyId: 'comp-1',
+        emailStatus: data.emailStatus || 'not_sent',
+        syncStatus: 'local_only'
+      };
+      
+      dataService.optimisticCreateInvoice(tempId, invoiceData);
+      
       const tempInvoice: Invoice = {
-        id: `temp-${Date.now()}`,
+        id: tempId,
         docNumber: `INV-TEMP`,
         txnDate: data.txnDate || new Date().toISOString().split('T')[0],
         dueDate: data.dueDate || '',
         customer: data.customer || '',
         customerId: data.customerId || '',
+        companyId: 'comp-1',
         lineItems: data.lineItems || [],
         subtotal: data.subtotal || 0,
         taxRate: data.taxRate || 0,
@@ -200,28 +220,47 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      
       setUndoState({ message: 'Invoice created', invoice: tempInvoice, action: 'create' });
     }
-  }, [editingInvoice]);
+  }, [editingInvoice, createInvoiceMutation, updateInvoiceMutation]);
 
-  const handleSaveAndClose = useCallback((data: Partial<Invoice>) => {
-    handleSave(data);
+  const handleSaveAndClose = useCallback(async (data: Partial<Invoice>) => {
+    await handleSave(data);
     setFormOpen(false);
     setEditingInvoice(null);
   }, [handleSave]);
 
-  const handleSend = useCallback((data: Partial<Invoice>) => {
-    const invoiceData = { ...data, status: 'sent' as InvoiceStatus, emailStatus: 'sent' as const };
-    if (editingInvoice) {
-      setUndoState({ message: 'Invoice sent', invoice: editingInvoice, action: 'update' });
+  const handleSend = useCallback(async (data: Partial<Invoice>) => {
+    const invoiceData = { 
+      ...data, 
+      status: 'sent' as InvoiceStatus, 
+      emailStatus: 'sent' as const, 
+      companyId: 'comp-1',
+      syncStatus: 'local_only'
+    };
+    
+    if (editingInvoice && editingInvoice.id) {
+      const previousInvoice = editingInvoice;
+      setUndoState({ message: 'Invoice sent', invoice: previousInvoice, action: 'update' });
+      
+      await updateInvoiceMutation.mutateAsync({ 
+        id: editingInvoice.id, 
+        data: invoiceData
+      });
     } else {
+      const tempId = `temp-${Date.now()}`;
+      
+      dataService.optimisticCreateInvoice(tempId, invoiceData);
+      
       const tempInvoice: Invoice = {
-        id: `temp-${Date.now()}`,
+        id: tempId,
         docNumber: `INV-TEMP`,
         txnDate: invoiceData.txnDate || new Date().toISOString().split('T')[0],
         dueDate: invoiceData.dueDate || '',
         customer: invoiceData.customer || '',
         customerId: invoiceData.customerId || '',
+        companyId: 'comp-1',
         lineItems: invoiceData.lineItems || [],
         subtotal: invoiceData.subtotal || 0,
         taxRate: invoiceData.taxRate || 0,
@@ -235,14 +274,21 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      
       setUndoState({ message: 'Invoice created and sent', invoice: tempInvoice, action: 'create' });
     }
+    
     setFormOpen(false);
     setEditingInvoice(null);
-  }, [editingInvoice]);
+  }, [editingInvoice, updateInvoiceMutation]);
 
   const handleUndo = useCallback(() => {
     if (!undoState) return;
+    
+    if (undoState.action === 'create') {
+      dataService.rollbackInvoice(undoState.invoice.id);
+    }
+    
     setUndoState(null);
   }, [undoState]);
 

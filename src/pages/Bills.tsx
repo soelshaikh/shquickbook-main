@@ -9,7 +9,8 @@ import { BillForm } from '@/components/bills/BillForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
 import { Bill } from '@/data/mockBills';
-import { useBills } from '@/hooks/useBills';
+import { useBills, useCreateBill, useUpdateBill } from '@/hooks/useBills';
+import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
 import { usePagePerformance } from '@/hooks/usePerformance';
 import { toast } from 'sonner';
@@ -44,11 +45,15 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: bills = [], isLoading, error } = useBills('comp-1');
+  const createBillMutation = useCreateBill();
+  const updateBillMutation = useUpdateBill();
   const [searchQuery, setSearchQuery] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [undoState, setUndoState] = useState<{
     message: string;
+    billId?: string;
+    action: 'create' | 'update';
   } | null>(null);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
 
@@ -177,11 +182,32 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
     setEditingBill(null);
   }, []);
 
-  const handleSave = useCallback((billData: Partial<Bill>) => {
-    setUndoState({
-      message: editingBill ? 'Bill updated' : 'Bill created',
-    });
-  }, [editingBill]);
+  const handleSave = useCallback(async (billData: Partial<Bill>) => {
+    if (editingBill && editingBill.id) {
+      setUndoState({
+        message: 'Bill updated',
+        action: 'update',
+      });
+      
+      await updateBillMutation.mutateAsync({ 
+        id: editingBill.id, 
+        data: { ...billData, companyId: 'comp-1' }
+      });
+    } else {
+      const tempId = `temp-${Date.now()}`;
+      const dataWithCompany = { ...billData, companyId: 'comp-1' };
+      
+      dataService.optimisticCreateBill(tempId, dataWithCompany);
+      
+      setUndoState({
+        message: 'Bill created',
+        billId: tempId,
+        action: 'create',
+      });
+      
+      createBillMutation.mutate(dataWithCompany);
+    }
+  }, [editingBill, createBillMutation, updateBillMutation]);
 
   const handleSaveAndClose = useCallback((billData: Partial<Bill>) => {
     handleSave(billData);
@@ -190,6 +216,9 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
 
   const handleUndo = useCallback(() => {
     if (undoState) {
+      if (undoState.action === 'create' && undoState.billId) {
+        dataService.rollbackBill(undoState.billId);
+      }
       setUndoState(null);
     }
   }, [undoState]);
