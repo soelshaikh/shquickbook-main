@@ -1,12 +1,22 @@
-import { useEffect, useCallback, useState, forwardRef } from 'react';
+import { useEffect, useCallback, forwardRef, useRef } from 'react';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { JournalEntry, JournalEntryLine, mockAccounts } from '@/data/mockJournalEntries';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { JournalEntry, mockAccounts } from '@/data/mockJournalEntries';
 import { Plus, Trash2, AlertCircle, Copy } from 'lucide-react';
+import {
+  journalEntryFormSchema,
+  type JournalEntryFormData,
+  defaultJournalEntryFormValues,
+  journalEntryFormDataToDomainModel,
+  domainModelToJournalEntryFormData,
+  calculateBalancingAmount,
+} from '@/schemas';
 
 interface JournalEntryFormProps {
   open: boolean;
@@ -17,93 +27,112 @@ interface JournalEntryFormProps {
   onDuplicate?: (data: Partial<JournalEntry>) => void;
 }
 
-interface LineState extends Omit<JournalEntryLine, 'id'> {
-  id: string;
-}
-
 export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps>(
   function JournalEntryForm({ open, onOpenChange, entry, onSave, onSaveAndClose, onDuplicate }, ref) {
   // Detect if this is a duplicate (has data but no id)
   const isDuplicate = entry && !entry.id;
-  const [txnDate, setTxnDate] = useState('');
-  const [memo, setMemo] = useState('');
-  const [lines, setLines] = useState<LineState[]>([]);
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize form
+  // Initialize React Hook Form with Zod validation
+  const form = useForm<JournalEntryFormData>({
+    resolver: zodResolver(journalEntryFormSchema),
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
+    defaultValues: entry 
+      ? domainModelToJournalEntryFormData(entry)
+      : defaultJournalEntryFormValues(),
+  });
+
+  // Field array for dynamic lines
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: 'lines',
+  });
+
+  // Watch lines for balance calculations
+  const watchedLines = form.watch('lines');
+
+  // Calculate totals (unchanged business logic)
+  const totalDebit = watchedLines.reduce((sum, l) => sum + (l.debit || 0), 0);
+  const totalCredit = watchedLines.reduce((sum, l) => sum + (l.credit || 0), 0);
+  const balance = calculateBalancingAmount(watchedLines);
+
+  // Reset form when entry prop changes
   useEffect(() => {
-    if (entry) {
-      setTxnDate(entry.txnDate);
-      setMemo(entry.memo);
-      setLines(entry.lines.map(l => ({ ...l })));
-    } else {
-      setTxnDate(new Date().toISOString().split('T')[0]);
-      setMemo('');
-      setLines([
-        { id: '1', accountId: '', accountName: '', description: '', debit: 0, credit: 0 },
-        { id: '2', accountId: '', accountName: '', description: '', debit: 0, credit: 0 },
-      ]);
-    }
-  }, [entry, open]);
+    form.reset(
+      entry 
+        ? domainModelToJournalEntryFormData(entry)
+        : defaultJournalEntryFormValues()
+    );
+  }, [entry, form]);
 
-  const totalDebit = lines.reduce((sum, l) => sum + (l.debit || 0), 0);
-  const totalCredit = lines.reduce((sum, l) => sum + (l.credit || 0), 0);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+  // Focus first input when opening
+  useEffect(() => {
+    if (open) {
+      setTimeout(() => firstInputRef.current?.focus(), 100);
+    }
+  }, [open]);
 
   const addLine = useCallback(() => {
-    setLines(prev => [
-      ...prev,
-      { id: String(Date.now()), accountId: '', accountName: '', description: '', debit: 0, credit: 0 }
-    ]);
-  }, []);
+    append({
+      id: crypto.randomUUID(),
+      accountId: '',
+      accountName: '',
+      description: '',
+      debit: 0,
+      credit: 0,
+    });
+  }, [append]);
 
-  const removeLine = useCallback((id: string) => {
-    setLines(prev => prev.filter(l => l.id !== id));
-  }, []);
+  const removeLine = useCallback((index: number) => {
+    remove(index);
+  }, [remove]);
 
-  const updateLine = useCallback((id: string, field: keyof LineState, value: string | number) => {
-    setLines(prev => prev.map(l => {
-      if (l.id !== id) return l;
-      
-      if (field === 'accountId') {
-        const account = mockAccounts.find(a => a.id === value);
-        return { ...l, accountId: value as string, accountName: account?.name || '' };
-      }
-      
-      return { ...l, [field]: value };
-    }));
-  }, []);
+  const updateLineAccount = useCallback((index: number, accountId: string) => {
+    const account = mockAccounts.find(a => a.id === accountId);
+    form.setValue(`lines.${index}.accountId`, accountId);
+    form.setValue(`lines.${index}.accountName`, account?.name || '');
+  }, [form]);
 
-  const buildData = useCallback((): Partial<JournalEntry> => {
-    return {
-      id: entry?.id,
-      txnDate,
-      memo,
-      lines: lines.filter(l => l.accountId),
-      totalDebit,
-      totalCredit,
-      status: entry?.status || 'draft',
-    };
-  }, [entry, txnDate, memo, lines, totalDebit, totalCredit]);
+  // Convert form data to JournalEntry domain model
+  const getFormData = (formData: JournalEntryFormData): Partial<JournalEntry> => {
+    return journalEntryFormDataToDomainModel(
+      formData,
+      entry?.id ? {
+        id: entry.id,
+        docNumber: entry.docNumber,
+        companyId: entry.companyId,
+        createdAt: entry.createdAt,
+      } : undefined
+    );
+  };
 
+  // Submit handlers - all trigger validation
   const handleSave = useCallback(() => {
-    onSave(buildData());
-  }, [onSave, buildData]);
+    form.handleSubmit((data) => {
+      onSave(getFormData(data));
+    })();
+  }, [form, onSave, entry]);
 
   const handleSaveAndClose = useCallback(() => {
-    onSaveAndClose(buildData());
-  }, [onSaveAndClose, buildData]);
+    form.handleSubmit((data) => {
+      onSaveAndClose(getFormData(data));
+    })();
+  }, [form, onSaveAndClose, entry]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts - unchanged functionality
   useEffect(() => {
     if (!open) return;
 
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 's') {
+      const isModifier = e.ctrlKey || e.metaKey;
+      
+      if (isModifier && e.key === 's') {
         e.preventDefault();
         handleSave();
-      } else if (e.ctrlKey && e.key === 'Enter') {
+      } else if (isModifier && e.key === 'Enter') {
         e.preventDefault();
-        if (isBalanced) {
+        if (balance.isBalanced) {
           handleSaveAndClose();
         }
       } else if (e.key === 'Escape') {
@@ -114,7 +143,7 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, handleSave, handleSaveAndClose, onOpenChange, isBalanced]);
+  }, [open, handleSave, handleSaveAndClose, onOpenChange, balance.isBalanced]);
 
   const formatCurrency = (n: number) => 
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
@@ -131,7 +160,10 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onDuplicate(buildData())}
+                onClick={() => {
+                  const currentData = form.getValues();
+                  onDuplicate(getFormData(currentData));
+                }}
                 className="gap-1.5"
               >
                 <Copy className="h-3.5 w-3.5" />
@@ -146,153 +178,307 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
           )}
         </SheetHeader>
 
-        <div className="mt-6 space-y-6">
-          {/* Header Fields */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="txnDate">Date</Label>
-              <Input
-                id="txnDate"
-                type="date"
-                value={txnDate}
-                onChange={(e) => setTxnDate(e.target.value)}
+        {/* Form with React Hook Form provider */}
+        <Form {...form}>
+          <form className="mt-6 space-y-6" onSubmit={(e) => e.preventDefault()}>
+            {/* Header Fields */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Transaction Date Field - with validation */}
+              <FormField
+                control={form.control}
+                name="txnDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Date</FormLabel>
+                    <FormControl>
+                      <Input
+                        ref={firstInputRef}
+                        type="date"
+                        className="focus:ring-ring"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
+              
+              <div className="space-y-2">
+                <FormLabel>Entry #</FormLabel>
+                <Input
+                  value={entry?.docNumber || 'Auto-generated'}
+                  disabled
+                  className="bg-muted"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="docNumber">Entry #</Label>
-              <Input
-                id="docNumber"
-                value={entry?.docNumber || 'Auto-generated'}
-                disabled
-                className="bg-muted"
-              />
-            </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="memo">Memo</Label>
-            <Textarea
-              id="memo"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="Enter a description..."
-              rows={2}
+            {/* Memo Field - with validation */}
+            <FormField
+              control={form.control}
+              name="memo"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Memo</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Enter a description..."
+                      className="resize-none h-16 focus:ring-ring"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-          </div>
 
-          {/* Line Items */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Line Items</Label>
-              <Button type="button" variant="ghost" size="sm" onClick={addLine}>
-                <Plus className="h-4 w-4 mr-1" />
-                Add Line
+            {/* Line Items Section - with validation */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <FormLabel>Line Items</FormLabel>
+                <Button type="button" variant="ghost" size="sm" onClick={addLine}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Line
+                </Button>
+              </div>
+
+              <div className="border rounded-md">
+                {/* Header */}
+                <div className="grid grid-cols-12 gap-2 p-2 bg-muted/50 text-xs font-medium text-muted-foreground border-b">
+                  <div className="col-span-4">Account</div>
+                  <div className="col-span-3">Description</div>
+                  <div className="col-span-2 text-right">Debit</div>
+                  <div className="col-span-2 text-right">Credit</div>
+                  <div className="col-span-1"></div>
+                </div>
+
+                {/* Line Item Rows - each field validated */}
+                {fields.map((field, index) => (
+                  <div key={field.id} className="space-y-2">
+                    <div className="grid grid-cols-12 gap-2 p-2 border-b last:border-b-0 items-center">
+                      {/* Account Field */}
+                      <div className="col-span-4">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.accountId`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <Select 
+                                onValueChange={(value) => updateLineAccount(index, value)}
+                                value={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="h-8 text-xs focus:ring-ring">
+                                    <SelectValue placeholder="Select account" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {mockAccounts.map(acc => (
+                                    <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Description Field */}
+                      <div className="col-span-3">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.description`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  placeholder="Description"
+                                  className="h-8 text-xs focus:ring-ring"
+                                  {...field}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Debit Field */}
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.debit`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  placeholder="0.00"
+                                  className="h-8 text-xs text-right font-mono-nums focus:ring-ring"
+                                  min="0"
+                                  step="0.01"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Credit Field */}
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.credit`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  placeholder="0.00"
+                                  className="h-8 text-xs text-right font-mono-nums focus:ring-ring"
+                                  min="0"
+                                  step="0.01"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Delete Button */}
+                      <div className="col-span-1 flex justify-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeLine(index)}
+                          disabled={fields.length <= 2}
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {/* Inline validation errors for line items */}
+                    <div className="grid grid-cols-12 gap-2 px-2 pb-2">
+                      <div className="col-span-4">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.accountId`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.description`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.debit`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.credit`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Totals */}
+                <div className="grid grid-cols-12 gap-2 p-2 bg-muted/30 text-sm font-medium">
+                  <div className="col-span-7 text-right">Totals:</div>
+                  <div className="col-span-2 text-right font-mono-nums">{formatCurrency(totalDebit)}</div>
+                  <div className="col-span-2 text-right font-mono-nums">{formatCurrency(totalCredit)}</div>
+                  <div className="col-span-1"></div>
+                </div>
+              </div>
+
+              {/* Array-level validation error */}
+              {form.formState.errors.lines?.root && (
+                <p className="text-sm font-medium text-destructive">
+                  {form.formState.errors.lines.root.message}
+                </p>
+              )}
+
+              {/* Balance Warning */}
+              {!balance.isBalanced && (
+                <div className="flex items-center gap-2 text-destructive text-sm">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Entry is not balanced. Difference: {formatCurrency(Math.abs(totalDebit - totalCredit))}</span>
+                </div>
+              )}
+
+              {/* Balance Helper Info */}
+              {!balance.isBalanced && (
+                <div className="text-xs text-muted-foreground">
+                  {balance.needsDebit && (
+                    <span>Add {formatCurrency(balance.amount)} to Debit to balance</span>
+                  )}
+                  {balance.needsCredit && (
+                    <span>Add {formatCurrency(balance.amount)} to Credit to balance</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons - all trigger validation */}
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button 
+                type="button"
+                variant="outline" 
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+                <kbd className="kbd ml-2 text-[10px]">Esc</kbd>
+              </Button>
+              <Button 
+                type="button"
+                variant="secondary" 
+                onClick={handleSave}
+              >
+                Save
+                <kbd className="kbd ml-2 text-[10px]">⌘S</kbd>
+              </Button>
+              <Button 
+                type="button"
+                onClick={handleSaveAndClose} 
+                disabled={!balance.isBalanced}
+              >
+                Save & Close
+                <kbd className="kbd ml-2 text-[10px]">⌘↵</kbd>
               </Button>
             </div>
-
-            <div className="border rounded-md">
-              {/* Header */}
-              <div className="grid grid-cols-12 gap-2 p-2 bg-muted/50 text-xs font-medium text-muted-foreground border-b">
-                <div className="col-span-4">Account</div>
-                <div className="col-span-3">Description</div>
-                <div className="col-span-2 text-right">Debit</div>
-                <div className="col-span-2 text-right">Credit</div>
-                <div className="col-span-1"></div>
-              </div>
-
-              {/* Lines */}
-              {lines.map((line) => (
-                <div key={line.id} className="grid grid-cols-12 gap-2 p-2 border-b last:border-b-0 items-center">
-                  <div className="col-span-4">
-                    <Select 
-                      value={line.accountId} 
-                      onValueChange={(v) => updateLine(line.id, 'accountId', v)}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Select account" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {mockAccounts.map(acc => (
-                          <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-3">
-                    <Input
-                      value={line.description}
-                      onChange={(e) => updateLine(line.id, 'description', e.target.value)}
-                      placeholder="Description"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      value={line.debit || ''}
-                      onChange={(e) => updateLine(line.id, 'debit', parseFloat(e.target.value) || 0)}
-                      placeholder="0.00"
-                      className="h-8 text-xs text-right font-mono-nums"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      value={line.credit || ''}
-                      onChange={(e) => updateLine(line.id, 'credit', parseFloat(e.target.value) || 0)}
-                      placeholder="0.00"
-                      className="h-8 text-xs text-right font-mono-nums"
-                    />
-                  </div>
-                  <div className="col-span-1 flex justify-center">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeLine(line.id)}
-                      disabled={lines.length <= 2}
-                      className="h-8 w-8 p-0"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-
-              {/* Totals */}
-              <div className="grid grid-cols-12 gap-2 p-2 bg-muted/30 text-sm font-medium">
-                <div className="col-span-7 text-right">Totals:</div>
-                <div className="col-span-2 text-right font-mono-nums">{formatCurrency(totalDebit)}</div>
-                <div className="col-span-2 text-right font-mono-nums">{formatCurrency(totalCredit)}</div>
-                <div className="col-span-1"></div>
-              </div>
-            </div>
-
-            {/* Balance Warning */}
-            {!isBalanced && (
-              <div className="flex items-center gap-2 text-destructive text-sm">
-                <AlertCircle className="h-4 w-4" />
-                <span>Entry is not balanced. Difference: {formatCurrency(Math.abs(totalDebit - totalCredit))}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-              <kbd className="kbd ml-2 text-[10px]">Esc</kbd>
-            </Button>
-            <Button variant="secondary" onClick={handleSave}>
-              Save
-              <kbd className="kbd ml-2 text-[10px]">Ctrl+S</kbd>
-            </Button>
-            <Button onClick={handleSaveAndClose} disabled={!isBalanced}>
-              Save & Close
-              <kbd className="kbd ml-2 text-[10px]">Ctrl+↵</kbd>
-            </Button>
-          </div>
-        </div>
+          </form>
+        </Form>
       </SheetContent>
     </Sheet>
   );

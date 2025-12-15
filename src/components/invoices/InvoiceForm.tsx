@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Invoice, InvoiceLineItem, customers } from '@/data/mockInvoices';
 import { Plus, Trash2, Save, Send, X, Copy } from 'lucide-react';
+import {
+  invoiceFormSchema,
+  type InvoiceFormData,
+  defaultInvoiceFormValues,
+  invoiceFormDataToDomainModel,
+  domainModelToInvoiceFormData,
+} from '@/schemas';
 
 interface InvoiceFormProps {
   open: boolean;
@@ -21,35 +27,8 @@ interface InvoiceFormProps {
   onDuplicate?: (invoice: Partial<Invoice>) => void;
 }
 
-// Zod schema for invoice form validation
-const invoiceFormSchema = z.object({
-  customerId: z.string().min(1, 'Customer is required'),
-  txnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format').optional().or(z.literal('')),
-  lineItems: z.array(z.object({
-    id: z.string(),
-    description: z.string().min(1, 'Description is required'),
-    quantity: z.number().positive('Quantity must be greater than 0'),
-    rate: z.number().positive('Rate must be greater than 0'),
-    amount: z.number(),
-  })).min(1, 'At least one line item required'),
-  taxRate: z.number().min(0).max(1),
-  memo: z.string().optional(),
-}).refine((data) => {
-  // If dueDate provided, it must be >= txnDate
-  if (data.dueDate && data.dueDate !== '') {
-    return new Date(data.dueDate) >= new Date(data.txnDate);
-  }
-  return true;
-}, {
-  message: 'Due date must be on or after invoice date',
-  path: ['dueDate'],
-});
-
-type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
-
 const defaultLineItem = (): InvoiceLineItem => ({
-  id: `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  id: crypto.randomUUID(),
   description: '',
   quantity: 1,
   rate: 0,
@@ -62,19 +41,14 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
   const firstInputRef = useRef<HTMLButtonElement>(null);
 
   // Initialize React Hook Form with Zod validation
-  // Validation UX: validate on submit first, then on blur after first attempt
+  // Validation UX: validate on submit first, then on change after first attempt
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceFormSchema),
     mode: 'onSubmit', // Initial validation on submit only
     reValidateMode: 'onChange', // After first submit, validate on change to clear errors immediately
-    defaultValues: {
-      customerId: invoice?.customerId || '',
-      txnDate: invoice?.txnDate || new Date().toISOString().split('T')[0],
-      dueDate: invoice?.dueDate || '',
-      lineItems: invoice?.lineItems || [defaultLineItem()],
-      taxRate: invoice?.taxRate || 0.0875,
-      memo: invoice?.memo || '',
-    },
+    defaultValues: invoice 
+      ? domainModelToInvoiceFormData(invoice)
+      : defaultInvoiceFormValues(),
   });
 
   // Field array for dynamic line items
@@ -94,14 +68,11 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
 
   // Reset form when invoice prop changes
   useEffect(() => {
-    form.reset({
-      customerId: invoice?.customerId || '',
-      txnDate: invoice?.txnDate || new Date().toISOString().split('T')[0],
-      dueDate: invoice?.dueDate || '',
-      lineItems: invoice?.lineItems || [defaultLineItem()],
-      taxRate: invoice?.taxRate || 0.0875,
-      memo: invoice?.memo || '',
-    });
+    form.reset(
+      invoice 
+        ? domainModelToInvoiceFormData(invoice)
+        : defaultInvoiceFormValues()
+    );
   }, [invoice, form]);
 
   // Set default due date (30 days from invoice date) - unchanged business logic
@@ -147,23 +118,19 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
     remove(index);
   }, [remove]);
 
-  // Convert form data to Invoice format
+  // Convert form data to Invoice domain model
   const getFormData = (formData: InvoiceFormData): Partial<Invoice> => {
     const customer = customers.find(c => c.id === formData.customerId);
-    return {
-      customerId: formData.customerId,
-      customer: customer?.name || '',
-      txnDate: formData.txnDate,
-      dueDate: formData.dueDate || undefined,
-      lineItems: formData.lineItems,
-      subtotal,
-      taxRate: formData.taxRate,
-      taxAmount,
-      total,
-      balance: total,
-      memo: formData.memo,
-      status: 'draft',
-    };
+    return invoiceFormDataToDomainModel(
+      formData,
+      customer?.name || '',
+      invoice?.id ? {
+        id: invoice.id,
+        docNumber: invoice.docNumber,
+        companyId: invoice.companyId,
+        createdAt: invoice.createdAt,
+      } : undefined
+    );
   };
 
   // Submit handlers - all trigger validation

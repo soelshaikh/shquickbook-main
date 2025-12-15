@@ -1,13 +1,21 @@
-import { useState, useEffect, useCallback, KeyboardEvent } from 'react';
-import { X, Plus, Trash2, Copy } from 'lucide-react';
+import { useEffect, useCallback, useRef } from 'react';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Plus, Trash2, Copy } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Bill, BillLineItem, Vendor, mockVendors } from '@/data/mockBills';
-import { cn } from '@/lib/utils';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Bill, BillLineItem, mockVendors } from '@/data/mockBills';
+import {
+  billFormSchema,
+  type BillFormData,
+  defaultBillFormValues,
+  billFormDataToDomainModel,
+  domainModelToBillFormData,
+} from '@/schemas';
 
 interface BillFormProps {
   bill?: Bill | null;
@@ -31,140 +39,132 @@ const expenseCategories = [
   'Travel',
 ];
 
-function generateId(): string {
-  return Math.random().toString(36).substr(2, 9);
-}
-
 export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDuplicate }: BillFormProps) {
   // Detect if this is a duplicate (has data but no id)
   const isDuplicate = bill && !bill.id;
-  const [vendorId, setVendorId] = useState('');
-  const [txnDate, setTxnDate] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [lineItems, setLineItems] = useState<BillLineItem[]>([]);
-  const [memo, setMemo] = useState('');
+  const firstInputRef = useRef<HTMLButtonElement>(null);
 
-  // Initialize form when bill changes or form opens
+  // Initialize React Hook Form with Zod validation
+  const form = useForm<BillFormData>({
+    resolver: zodResolver(billFormSchema),
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
+    defaultValues: bill 
+      ? domainModelToBillFormData(bill)
+      : defaultBillFormValues(),
+  });
+
+  // Field array for dynamic line items
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: 'lineItems',
+  });
+
+  // Watch line items for total calculations
+  const watchedLineItems = form.watch('lineItems');
+
+  // Calculate totals (unchanged business logic)
+  const subtotal = watchedLineItems.reduce((sum, item) => sum + item.amount, 0);
+  const tax = Math.round(subtotal * 0.0825 * 100) / 100; // 8.25% tax rate
+  const total = Math.round((subtotal + tax) * 100) / 100;
+
+  // Reset form when bill prop changes
+  useEffect(() => {
+    form.reset(
+      bill 
+        ? domainModelToBillFormData(bill)
+        : defaultBillFormValues()
+    );
+  }, [bill, form]);
+
+  // Focus first input when opening
   useEffect(() => {
     if (isOpen) {
-      if (bill) {
-        setVendorId(bill.vendor.id);
-        setTxnDate(bill.txnDate);
-        setDueDate(bill.dueDate);
-        setLineItems(bill.lineItems.map(item => ({ ...item })));
-        setMemo(bill.memo || '');
-      } else {
-        // New bill defaults
-        const today = new Date().toISOString().split('T')[0];
-        const due = new Date();
-        due.setDate(due.getDate() + 30);
-        
-        setVendorId('');
-        setTxnDate(today);
-        setDueDate(due.toISOString().split('T')[0]);
-        setLineItems([{
-          id: generateId(),
-          description: '',
-          category: expenseCategories[0],
-          quantity: 1,
-          rate: 0,
-          amount: 0,
-        }]);
-        setMemo('');
-      }
+      setTimeout(() => firstInputRef.current?.focus(), 100);
     }
-  }, [bill, isOpen]);
+  }, [isOpen]);
 
-  const calculateSubtotal = useCallback(() => {
-    return lineItems.reduce((sum, item) => sum + item.amount, 0);
-  }, [lineItems]);
-
-  const calculateTax = useCallback(() => {
-    return calculateSubtotal() * 0.0825;
-  }, [calculateSubtotal]);
-
-  const calculateTotal = useCallback(() => {
-    return calculateSubtotal() + calculateTax();
-  }, [calculateSubtotal, calculateTax]);
-
-  const updateLineItem = useCallback((index: number, field: keyof BillLineItem, value: string | number) => {
-    setLineItems(prev => {
-      const updated = [...prev];
-      const item = { ...updated[index] };
+  // Update line item amount when quantity or rate changes
+  const updateLineItem = useCallback((index: number, field: 'description' | 'quantity' | 'rate' | 'category', value: string | number) => {
+    const currentItem = form.getValues(`lineItems.${index}`);
+    
+    if (field === 'quantity' || field === 'rate') {
+      const numValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
+      const quantity = field === 'quantity' ? numValue : currentItem.quantity;
+      const rate = field === 'rate' ? numValue : currentItem.rate;
+      const amount = Math.round(quantity * rate * 100) / 100;
       
-      if (field === 'quantity' || field === 'rate') {
-        item[field] = typeof value === 'string' ? parseFloat(value) || 0 : value;
-        item.amount = Math.round(item.quantity * item.rate * 100) / 100;
-      } else {
-        (item as any)[field] = value;
-      }
-      
-      updated[index] = item;
-      return updated;
-    });
-  }, []);
+      form.setValue(`lineItems.${index}.${field}`, numValue);
+      form.setValue(`lineItems.${index}.amount`, amount);
+    } else {
+      form.setValue(`lineItems.${index}.${field}`, value as string);
+    }
+  }, [form]);
 
   const addLineItem = useCallback(() => {
-    setLineItems(prev => [...prev, {
-      id: generateId(),
+    append({
+      id: crypto.randomUUID(),
       description: '',
       category: expenseCategories[0],
       quantity: 1,
       rate: 0,
       amount: 0,
-    }]);
-  }, []);
+    });
+  }, [append]);
 
   const removeLineItem = useCallback((index: number) => {
-    setLineItems(prev => prev.filter((_, i) => i !== index));
-  }, []);
+    remove(index);
+  }, [remove]);
 
-  const buildBillData = useCallback((): Partial<Bill> => {
-    const vendor = mockVendors.find(v => v.id === vendorId);
-    const subtotal = calculateSubtotal();
-    const tax = calculateTax();
-    const total = calculateTotal();
+  // Convert form data to Bill domain model
+  const getFormData = (formData: BillFormData): Partial<Bill> => {
+    const vendor = mockVendors.find(v => v.id === formData.vendorId);
+    return billFormDataToDomainModel(
+      formData,
+      vendor?.name || 'Unknown Vendor',
+      bill?.id ? {
+        id: bill.id,
+        docNumber: bill.docNumber,
+        companyId: bill.companyId,
+      } : undefined
+    );
+  };
 
-    return {
-      id: bill?.id || `bill-${generateId()}`,
-      docNumber: bill?.docNumber || `BILL-${String(Date.now()).slice(-5)}`,
-      txnDate,
-      dueDate,
-      vendor: vendor || { id: vendorId, name: 'Unknown Vendor' },
-      lineItems,
-      subtotal: Math.round(subtotal * 100) / 100,
-      tax: Math.round(tax * 100) / 100,
-      total: Math.round(total * 100) / 100,
-      balance: Math.round(total * 100) / 100,
-      status: 'pending',
-      paymentStatus: 'unpaid',
-      syncStatus: 'pending',
-      memo: memo || undefined,
-    };
-  }, [bill, vendorId, txnDate, dueDate, lineItems, memo, calculateSubtotal, calculateTax, calculateTotal]);
-
+  // Submit handlers - all trigger validation
   const handleSave = useCallback(() => {
-    onSave(buildBillData());
-  }, [onSave, buildBillData]);
+    form.handleSubmit((data) => {
+      onSave(getFormData(data));
+    })();
+  }, [form, onSave, bill]);
 
   const handleSaveAndClose = useCallback(() => {
-    onSaveAndClose(buildBillData());
-  }, [onSaveAndClose, buildBillData]);
+    form.handleSubmit((data) => {
+      onSaveAndClose(getFormData(data));
+    })();
+  }, [form, onSaveAndClose, bill]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      if (e.key === 's') {
+  // Keyboard shortcuts - unchanged functionality
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isModifier = e.ctrlKey || e.metaKey;
+      
+      if (isModifier && e.key === 's') {
         e.preventDefault();
         handleSave();
-      } else if (e.key === 'Enter') {
+      } else if (isModifier && e.key === 'Enter') {
         e.preventDefault();
         handleSaveAndClose();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
       }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose();
-    }
-  }, [handleSave, handleSaveAndClose, onClose]);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleSave, handleSaveAndClose, onClose]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -176,10 +176,7 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent 
-        className="w-full sm:max-w-2xl overflow-y-auto"
-        onKeyDown={handleKeyDown}
-      >
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
         <SheetHeader className="mb-6">
           <div className="flex items-center justify-between">
             <SheetTitle>
@@ -189,7 +186,10 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onDuplicate(buildBillData())}
+                onClick={() => {
+                  const currentData = form.getValues();
+                  onDuplicate(getFormData(currentData));
+                }}
                 className="gap-1.5"
               >
                 <Copy className="h-3.5 w-3.5" />
@@ -204,188 +204,316 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
           )}
         </SheetHeader>
 
-        <div className="space-y-6">
-          {/* Vendor Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="vendor">Vendor</Label>
-            <Select value={vendorId} onValueChange={setVendorId}>
-              <SelectTrigger className="focus:ring-primary">
-                <SelectValue placeholder="Select a vendor" />
-              </SelectTrigger>
-              <SelectContent>
-                {mockVendors.map(vendor => (
-                  <SelectItem key={vendor.id} value={vendor.id}>
-                    {vendor.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Form with React Hook Form provider */}
+        <Form {...form}>
+          <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+            {/* Vendor Selection - with validation */}
+            <FormField
+              control={form.control}
+              name="vendorId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Vendor</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger ref={firstInputRef} className="focus:ring-ring">
+                        <SelectValue placeholder="Select a vendor" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {mockVendors.map(vendor => (
+                        <SelectItem key={vendor.id} value={vendor.id}>
+                          {vendor.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="txnDate">Bill Date</Label>
-              <Input
-                id="txnDate"
-                type="date"
-                value={txnDate}
-                onChange={(e) => setTxnDate(e.target.value)}
-                className="font-mono focus:ring-primary"
+            {/* Dates - with validation */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Bill Date Field */}
+              <FormField
+                control={form.control}
+                name="txnDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Bill Date</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        className="font-mono focus:ring-ring"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              {/* Due Date Field */}
+              <FormField
+                control={form.control}
+                name="dueDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Due Date</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        className="font-mono focus:ring-ring"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="dueDate">Due Date</Label>
-              <Input
-                id="dueDate"
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="font-mono focus:ring-primary"
-              />
-            </div>
-          </div>
 
-          {/* Line Items */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Expense Line Items</Label>
-              <Button variant="ghost" size="sm" onClick={addLineItem}>
-                <Plus className="h-4 w-4 mr-1" />
-                Add Line
-              </Button>
-            </div>
-            
-            <div className="border border-border rounded-lg overflow-hidden">
-              {/* Header */}
-              <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
-                <div className="col-span-4">Description</div>
-                <div className="col-span-2">Category</div>
-                <div className="col-span-2 text-right">Qty</div>
-                <div className="col-span-2 text-right">Rate</div>
-                <div className="col-span-1 text-right">Amount</div>
-                <div className="col-span-1"></div>
+            {/* Line Items Section - with validation */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <FormLabel>Expense Line Items</FormLabel>
+                <Button type="button" variant="ghost" size="sm" onClick={addLineItem}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Line
+                </Button>
               </div>
               
-              {/* Items */}
-              {lineItems.map((item, index) => (
-                <div 
-                  key={item.id} 
-                  className="grid grid-cols-12 gap-2 px-3 py-2 border-t border-border items-center"
-                >
-                  <div className="col-span-4">
-                    <Input
-                      value={item.description}
-                      onChange={(e) => updateLineItem(index, 'description', e.target.value)}
-                      placeholder="Description"
-                      className="h-8 text-sm focus:ring-primary"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Select 
-                      value={item.category} 
-                      onValueChange={(value) => updateLineItem(index, 'category', value)}
-                    >
-                      <SelectTrigger className="h-8 text-xs focus:ring-primary">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {expenseCategories.map(cat => (
-                          <SelectItem key={cat} value={cat} className="text-xs">
-                            {cat}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => updateLineItem(index, 'quantity', e.target.value)}
-                      className="h-8 text-sm font-mono text-right focus:ring-primary"
-                      min="0"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      value={item.rate}
-                      onChange={(e) => updateLineItem(index, 'rate', e.target.value)}
-                      className="h-8 text-sm font-mono text-right focus:ring-primary"
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-                  <div className="col-span-1 font-mono text-sm text-right">
-                    {formatCurrency(item.amount)}
-                  </div>
-                  <div className="col-span-1 flex justify-end">
-                    {lineItems.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeLineItem(index)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
+              <div className="border border-border rounded-lg overflow-hidden">
+                {/* Header */}
+                <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
+                  <div className="col-span-4">Description</div>
+                  <div className="col-span-2">Category</div>
+                  <div className="col-span-2 text-right">Qty</div>
+                  <div className="col-span-2 text-right">Rate</div>
+                  <div className="col-span-1 text-right">Amount</div>
+                  <div className="col-span-1"></div>
                 </div>
-              ))}
+                
+                {/* Line Item Rows - each field validated */}
+                {fields.map((field, index) => (
+                  <div key={field.id} className="space-y-2">
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 border-t border-border items-center">
+                      {/* Description Field */}
+                      <div className="col-span-4">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.description`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  placeholder="Description"
+                                  className="h-8 text-sm focus:ring-ring"
+                                  {...field}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Category Field */}
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.category`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger className="h-8 text-xs focus:ring-ring">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {expenseCategories.map(cat => (
+                                    <SelectItem key={cat} value={cat} className="text-xs">
+                                      {cat}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Quantity Field */}
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.quantity`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  className="h-8 text-sm font-mono text-right focus:ring-ring"
+                                  min="0"
+                                  step="1"
+                                  {...field}
+                                  onChange={(e) => updateLineItem(index, 'quantity', e.target.value)}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Rate Field */}
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.rate`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  className="h-8 text-sm font-mono text-right focus:ring-ring"
+                                  min="0"
+                                  step="0.01"
+                                  {...field}
+                                  onChange={(e) => updateLineItem(index, 'rate', e.target.value)}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      {/* Amount Display */}
+                      <div className="col-span-1 font-mono text-sm text-right">
+                        {formatCurrency(field.amount)}
+                      </div>
+                      
+                      {/* Delete Button */}
+                      <div className="col-span-1 flex justify-end">
+                        {fields.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeLineItem(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Inline validation errors for line items */}
+                    <div className="grid grid-cols-12 gap-2 px-3 pb-2">
+                      <div className="col-span-4">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.description`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="col-span-2"></div>
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.quantity`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`lineItems.${index}.rate`}
+                          render={() => (
+                            <FormItem>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {/* Array-level validation error */}
+              {form.formState.errors.lineItems?.root && (
+                <p className="text-sm font-medium text-destructive">
+                  {form.formState.errors.lineItems.root.message}
+                </p>
+              )}
             </div>
-          </div>
 
-          {/* Totals */}
-          <div className="flex flex-col items-end space-y-1 pt-4 border-t border-border">
-            <div className="flex items-center gap-8 text-sm">
-              <span className="text-muted-foreground">Subtotal:</span>
-              <span className="font-mono w-28 text-right">{formatCurrency(calculateSubtotal())}</span>
+            {/* Totals - unchanged business logic */}
+            <div className="flex flex-col items-end space-y-1 pt-4 border-t border-border">
+              <div className="flex items-center gap-8 text-sm">
+                <span className="text-muted-foreground">Subtotal:</span>
+                <span className="font-mono w-28 text-right">{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="flex items-center gap-8 text-sm">
+                <span className="text-muted-foreground">Tax (8.25%):</span>
+                <span className="font-mono w-28 text-right">{formatCurrency(tax)}</span>
+              </div>
+              <div className="flex items-center gap-8 text-base font-semibold pt-2 border-t border-border">
+                <span>Total:</span>
+                <span className="font-mono w-28 text-right">{formatCurrency(total)}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-8 text-sm">
-              <span className="text-muted-foreground">Tax (8.25%):</span>
-              <span className="font-mono w-28 text-right">{formatCurrency(calculateTax())}</span>
-            </div>
-            <div className="flex items-center gap-8 text-base font-semibold pt-2 border-t border-border">
-              <span>Total:</span>
-              <span className="font-mono w-28 text-right">{formatCurrency(calculateTotal())}</span>
-            </div>
-          </div>
 
-          {/* Memo */}
-          <div className="space-y-2">
-            <Label htmlFor="memo">Memo</Label>
-            <Textarea
-              id="memo"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="Add notes or reference numbers..."
-              className="resize-none focus:ring-primary"
-              rows={2}
+            {/* Memo Field - with validation */}
+            <FormField
+              control={form.control}
+              name="memo"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Memo</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Add notes or reference numbers..."
+                      className="resize-none h-16 focus:ring-ring"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-          </div>
 
-          {/* Actions */}
-          <div className="flex items-center justify-between pt-4 border-t border-border">
-            <div className="text-xs text-muted-foreground">
-              <span className="font-mono">Ctrl+S</span> Save · 
-              <span className="font-mono ml-1">Ctrl+Enter</span> Save & Close · 
-              <span className="font-mono ml-1">Esc</span> Cancel
+            {/* Action Buttons - all trigger validation */}
+            <div className="flex items-center justify-between pt-4 border-t border-border">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-mono">⌘S</span> Save · 
+                <span className="font-mono ml-1">⌘↵</span> Save & Close · 
+                <span className="font-mono ml-1">Esc</span> Cancel
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="button" variant="secondary" onClick={handleSave}>
+                  Save
+                </Button>
+                <Button type="button" onClick={handleSaveAndClose}>
+                  Save & Close
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button variant="secondary" onClick={handleSave}>
-                Save
-              </Button>
-              <Button onClick={handleSaveAndClose}>
-                Save & Close
-              </Button>
-            </div>
-          </div>
-        </div>
+          </form>
+        </Form>
       </SheetContent>
     </Sheet>
   );
