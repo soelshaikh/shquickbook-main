@@ -162,7 +162,10 @@ export const dbHelpers = {
    * Add item to sync queue
    */
   async addToSyncQueue(item: Omit<SyncQueueItem, 'id'>): Promise<number> {
-    return db.syncQueue.add(item as SyncQueueItem);
+    const id = await db.syncQueue.add(item as SyncQueueItem);
+    // Notify sync status listeners
+    window.dispatchEvent(new CustomEvent('syncQueueChange'));
+    return id;
   },
 
   /**
@@ -180,6 +183,8 @@ export const dbHelpers = {
     updates: Partial<SyncQueueItem>
   ): Promise<void> {
     await db.syncQueue.update(id, updates);
+    // Notify sync status listeners
+    window.dispatchEvent(new CustomEvent('syncQueueChange'));
   },
 
   /**
@@ -187,6 +192,8 @@ export const dbHelpers = {
    */
   async deleteSyncQueueItem(id: number): Promise<void> {
     await db.syncQueue.delete(id);
+    // Notify sync status listeners
+    window.dispatchEvent(new CustomEvent('syncQueueChange'));
   },
 
   /**

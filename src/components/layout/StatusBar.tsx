@@ -1,13 +1,11 @@
-import { Wifi, WifiOff } from 'lucide-react';
+import { SyncStatusIndicator } from '@/components/shared/SyncStatusIndicator';
 
 interface StatusBarProps {
-  isOnline?: boolean;
   onOpenCommandPalette?: () => void;
   onOpenShortcuts?: () => void;
 }
 
 export function StatusBar({ 
-  isOnline = true, 
   onOpenCommandPalette,
   onOpenShortcuts 
 }: StatusBarProps) {
@@ -35,20 +33,8 @@ export function StatusBar({
         </button>
       </div>
 
-      {/* Right side - Connection status */}
-      <div className="flex items-center gap-1.5">
-        {isOnline ? (
-          <>
-            <Wifi className="h-3 w-3 text-[hsl(var(--sync-synced))]" />
-            <span>Connected</span>
-          </>
-        ) : (
-          <>
-            <WifiOff className="h-3 w-3 text-[hsl(var(--sync-error))]" />
-            <span className="text-[hsl(var(--sync-error))]">Offline</span>
-          </>
-        )}
-      </div>
+      {/* Right side - Sync status indicator */}
+      <SyncStatusIndicator mode="full" size="sm" />
     </footer>
   );
 }
