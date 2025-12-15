@@ -3,10 +3,12 @@ import { AlertTriangle, RefreshCw, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useNavigate } from 'react-router-dom';
+import { getErrorMessage } from '@/lib/errorDisplay';
 
 interface FeatureErrorFallbackProps {
   featureName: string;
   onReset?: () => void;
+  error?: unknown;
 }
 
 /**
@@ -18,12 +20,18 @@ interface FeatureErrorFallbackProps {
 export const FeatureErrorFallback: React.FC<FeatureErrorFallbackProps> = ({
   featureName,
   onReset,
+  error,
 }) => {
   const navigate = useNavigate();
 
   const handleGoHome = () => {
     navigate('/');
   };
+
+  // Use normalized error message if error is provided, otherwise use generic message
+  const errorMessage = error 
+    ? getErrorMessage(error)
+    : `There was a problem loading ${featureName.toLowerCase()}. The rest of the application is still working.`;
 
   return (
     <div className="flex items-center justify-center min-h-[60vh] p-8">
@@ -34,7 +42,7 @@ export const FeatureErrorFallback: React.FC<FeatureErrorFallbackProps> = ({
             {featureName} Error
           </AlertTitle>
           <AlertDescription className="mt-2">
-            There was a problem loading {featureName.toLowerCase()}. The rest of the application is still working.
+            {errorMessage}
           </AlertDescription>
         </Alert>
 
@@ -62,18 +70,18 @@ export const FeatureErrorFallback: React.FC<FeatureErrorFallbackProps> = ({
 /**
  * Pre-configured fallback components for each feature
  */
-export const InvoicesErrorFallback: React.FC<{ onReset?: () => void }> = ({ onReset }) => (
-  <FeatureErrorFallback featureName="Invoices" onReset={onReset} />
+export const InvoicesErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Invoices" onReset={onReset} error={error} />
 );
 
-export const BillsErrorFallback: React.FC<{ onReset?: () => void }> = ({ onReset }) => (
-  <FeatureErrorFallback featureName="Bills" onReset={onReset} />
+export const BillsErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Bills" onReset={onReset} error={error} />
 );
 
-export const JournalEntriesErrorFallback: React.FC<{ onReset?: () => void }> = ({ onReset }) => (
-  <FeatureErrorFallback featureName="Journal Entries" onReset={onReset} />
+export const JournalEntriesErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Journal Entries" onReset={onReset} error={error} />
 );
 
-export const TransactionsErrorFallback: React.FC<{ onReset?: () => void }> = ({ onReset }) => (
-  <FeatureErrorFallback featureName="Transactions" onReset={onReset} />
+export const TransactionsErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Transactions" onReset={onReset} error={error} />
 );

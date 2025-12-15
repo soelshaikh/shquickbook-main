@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { normalizeError } from '@/lib/errorNormalization';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -47,10 +48,17 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    // Normalize error for consistent logging
+    const normalized = normalizeError(error);
+
     // Log error details to console
-    console.error('ErrorBoundary caught an error:', error);
-    console.error('Error Info:', errorInfo);
-    console.error('Component Stack:', errorInfo.componentStack);
+    console.error('ErrorBoundary caught an error:', {
+      code: normalized.code,
+      message: normalized.message,
+      severity: normalized.severity,
+      componentStack: errorInfo.componentStack,
+      metadata: normalized.metadata,
+    });
 
     // Update state with error info
     this.setState({
@@ -89,20 +97,33 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 Something went wrong
               </AlertTitle>
               <AlertDescription className="mt-2">
-                An unexpected error occurred. The application has been protected from crashing.
+                {this.state.error ? normalizeError(this.state.error).message : 'An unexpected error occurred. The application has been protected from crashing.'}
               </AlertDescription>
             </Alert>
 
-            <div className="bg-muted rounded-lg p-4 mb-4">
-              <div className="flex items-start gap-3">
-                <div className="flex-1">
-                  <h3 className="font-semibold text-sm mb-2">Error Details:</h3>
-                  <pre className="text-xs text-muted-foreground overflow-auto max-h-40 whitespace-pre-wrap break-words">
-                    {this.state.error?.toString()}
-                  </pre>
+            {process.env.NODE_ENV === 'development' && this.state.error && (
+              <div className="bg-muted rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-sm mb-2">Error Details (Development Only):</h3>
+                    <div className="space-y-2">
+                      <div>
+                        <span className="text-xs font-medium text-muted-foreground">Code:</span>
+                        <pre className="text-xs text-muted-foreground mt-1">
+                          {normalizeError(this.state.error).code}
+                        </pre>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-muted-foreground">Raw Error:</span>
+                        <pre className="text-xs text-muted-foreground overflow-auto max-h-32 whitespace-pre-wrap break-words mt-1">
+                          {this.state.error?.toString()}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
               <div className="bg-muted rounded-lg p-4 mb-4">
