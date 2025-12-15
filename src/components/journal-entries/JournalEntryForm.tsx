@@ -36,8 +36,8 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
   // Initialize React Hook Form with Zod validation
   const form = useForm<JournalEntryFormData>({
     resolver: zodResolver(journalEntryFormSchema),
-    mode: 'onSubmit',
-    reValidateMode: 'onChange',
+    mode: 'onBlur', // Validate when field loses focus
+    reValidateMode: 'onChange', // After first validation, re-validate on every change
     defaultValues: entry 
       ? domainModelToJournalEntryFormData(entry)
       : defaultJournalEntryFormValues(),
@@ -90,7 +90,7 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
 
   const updateLineAccount = useCallback((index: number, accountId: string) => {
     const account = mockAccounts.find(a => a.id === accountId);
-    form.setValue(`lines.${index}.accountId`, accountId);
+    form.setValue(`lines.${index}.accountId`, accountId, { shouldValidate: true });
     form.setValue(`lines.${index}.accountName`, account?.name || '');
   }, [form]);
 

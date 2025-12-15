@@ -145,5 +145,6 @@ export function generateMockInvoices(count: number = 150): Invoice[] {
   return invoices.sort((a, b) => new Date(b.txnDate).getTime() - new Date(a.txnDate).getTime());
 }
 
-export const mockInvoices = generateMockInvoices(150);
+// Generate 12,000 invoices for performance testing
+export const mockInvoices = generateMockInvoices(12000);
 export { customers };

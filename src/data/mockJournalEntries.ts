@@ -124,5 +124,6 @@ export function generateMockJournalEntries(count: number = 100): JournalEntry[] 
   return entries.sort((a, b) => new Date(b.txnDate).getTime() - new Date(a.txnDate).getTime());
 }
 
-export const mockJournalEntries = generateMockJournalEntries();
+// Generate 13,000 journal entries for performance testing
+export const mockJournalEntries = generateMockJournalEntries(13000);
 export const mockAccounts = accounts;

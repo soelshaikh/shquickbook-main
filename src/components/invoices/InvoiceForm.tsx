@@ -379,7 +379,7 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
                       
                       {/* Amount Display */}
                       <div className="col-span-2 text-right pt-1">
-                        <span className="text-sm font-mono-nums">{formatCurrency(item.amount)}</span>
+                        <span className="text-sm font-mono-nums">{formatCurrency(watchedLineItems[index]?.amount || 0)}</span>
                       </div>
                       
                       {/* Delete Button */}

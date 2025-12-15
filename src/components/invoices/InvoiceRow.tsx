@@ -32,8 +32,9 @@ const emailConfig = {
 };
 
 export const InvoiceRow = memo(({ invoice, isSelected, isFocused, isMultiSelected, style, onClick, onDoubleClick }: InvoiceRowProps) => {
-  const status = statusConfig[invoice.status];
-  const email = emailConfig[invoice.emailStatus];
+  // Safety check: default to draft if status not found
+  const status = statusConfig[invoice.status] || statusConfig.draft;
+  const email = emailConfig[invoice.emailStatus] || emailConfig.not_sent;
   const EmailIcon = email.icon;
 
   const formatCurrency = (amount: number) => {

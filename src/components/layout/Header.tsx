@@ -61,12 +61,29 @@ export function Header({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem className="text-xs">
+            <DropdownMenuItem 
+              className="text-xs cursor-pointer" 
+              onClick={() => {
+                // TODO: Navigate to account settings page
+                console.log('Account clicked - Navigate to /settings');
+                window.location.href = '/settings';
+              }}
+            >
               <User className="h-3 w-3 mr-2" />
               Account
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-xs text-destructive">
+            <DropdownMenuItem 
+              className="text-xs text-destructive cursor-pointer" 
+              onClick={() => {
+                // TODO: Implement disconnect logic
+                console.log('Disconnect QBO clicked');
+                if (confirm('Are you sure you want to disconnect from QuickBooks Online?')) {
+                  // For now, just reload to connection page
+                  window.location.href = '/connect';
+                }
+              }}
+            >
               <LogOut className="h-3 w-3 mr-2" />
               Disconnect QBO
             </DropdownMenuItem>

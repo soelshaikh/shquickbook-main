@@ -390,7 +390,7 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
                       
                       {/* Amount Display */}
                       <div className="col-span-1 font-mono text-sm text-right">
-                        {formatCurrency(field.amount)}
+                        {formatCurrency(watchedLineItems[index]?.amount || 0)}
                       </div>
                       
                       {/* Delete Button */}

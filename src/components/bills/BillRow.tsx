@@ -47,8 +47,9 @@ function isOverdue(dueDate: string, status: Bill['status']): boolean {
 
 export const BillRow = forwardRef<HTMLDivElement, BillRowProps>(
   ({ bill, isSelected, isFocused, isMultiSelected, style, onClick, onDoubleClick }, ref) => {
-    const status = statusConfig[bill.status];
-    const paymentStatus = paymentStatusConfig[bill.paymentStatus];
+    // Safety check: default to draft if status not found
+    const status = statusConfig[bill.status] || statusConfig.draft;
+    const paymentStatus = paymentStatusConfig[bill.paymentStatus] || paymentStatusConfig.unpaid;
     const overdue = isOverdue(bill.dueDate, bill.status);
 
     return (

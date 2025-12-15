@@ -49,11 +49,12 @@ export const journalEntryFormSchema = z
   .refine(
     (data) => {
       // Ensure each line has either debit OR credit, not both
+      // Allow both to be 0 (incomplete/empty line is OK during editing)
       return data.lines.every(line => {
         const hasDebit = line.debit > 0;
         const hasCredit = line.credit > 0;
-        // Valid if exactly one is true (XOR logic)
-        return (hasDebit && !hasCredit) || (!hasDebit && hasCredit);
+        // Valid if: both zero (incomplete), OR exactly one has a value (XOR)
+        return (!hasDebit && !hasCredit) || (hasDebit && !hasCredit) || (!hasDebit && hasCredit);
       });
     },
     {

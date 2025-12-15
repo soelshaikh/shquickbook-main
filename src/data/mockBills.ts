@@ -150,5 +150,6 @@ export function generateMockBills(count: number = 150): Bill[] {
   return bills.sort((a, b) => new Date(b.txnDate).getTime() - new Date(a.txnDate).getTime());
 }
 
-export const mockBills = generateMockBills();
+// Generate 11,000 bills for performance testing
+export const mockBills = generateMockBills(11000);
 export const mockVendors = vendors;
