@@ -8,6 +8,7 @@ import { JournalEntryList, JournalEntryListRef } from '@/components/journal-entr
 import { JournalEntryForm } from '@/components/journal-entries/JournalEntryForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
+import { RenderLimitWarning } from '@/components/shared/RenderLimitWarning';
 import { JournalEntry } from '@/data/mockJournalEntries';
 import { useJournalEntries, useCreateJournalEntry, useUpdateJournalEntry } from '@/hooks/useJournalEntries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,6 +22,10 @@ import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import { JournalEntriesErrorFallback } from '@/components/shared/FeatureErrorFallback';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2 } from 'lucide-react';
+import { AdvancedFilter } from '@/components/shared/AdvancedFilter';
+import { JOURNAL_ENTRY_FILTER_CONFIG } from '@/config/filterConfig';
+import { Filter } from '@/types/filter';
+import { applyFilters } from '@/lib/filterUtils';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -45,7 +50,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: entries = [], isLoading, isFetching, error } = useJournalEntries('comp-1');
+  const { data: entries = [], totalCount, isLoading, isFetching, error } = useJournalEntries('comp-1');
   const queryClient = useQueryClient();
   const createJournalEntryMutation = useCreateJournalEntry();
   const updateJournalEntryMutation = useUpdateJournalEntry();
@@ -53,6 +58,9 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
+  
+  // NEW: Advanced filter state
+  const [advancedFilters, setAdvancedFilters] = useState<Filter[]>([]);
   
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<JournalEntryListRef>(null);
@@ -71,7 +79,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
   const filteredEntries = useMemo(() => {
     let result = entries;
     
-    // Apply filter chips
+    // Apply filter chips (old filter system)
     filterBar.filters.forEach(chip => {
       if (chip.type === 'status') {
         result = result.filter(e => e.status === chip.value);
@@ -87,8 +95,13 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
       );
     }
     
+    // NEW: Apply advanced filters
+    if (advancedFilters.length > 0) {
+      result = applyFilters(result, advancedFilters);
+    }
+    
     return result;
-  }, [entries, searchQuery, filterBar.filters, filterBar.isOpen]);
+  }, [entries, searchQuery, filterBar.filters, filterBar.isOpen, advancedFilters]);
 
   // Export handler
   const handleExport = useCallback(() => {
@@ -265,6 +278,13 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
           hideSearch={filterBar.isOpen}
           actions={
             <div className="flex items-center gap-2">
+              <AdvancedFilter
+                filters={advancedFilters}
+                config={JOURNAL_ENTRY_FILTER_CONFIG}
+                onChange={setAdvancedFilters}
+                triggerLabel="Add Filter"
+                shortcutHint="⌘F"
+              />
               <ExportButton onClick={handleExport} itemCount={filteredEntries.length} />
               <Button size="sm" onClick={handleNewEntry} className="h-8 gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
@@ -284,6 +304,23 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
             placeholder="Filter journal entries... (Tab to lock)"
             onClose={filterBar.close}
           />
+        )}
+
+        {/* Render Limit Warning - shown when dataset exceeds MAX_RENDER_LIMIT */}
+        {!isLoading && (
+          <div className="px-4 pt-4">
+            <RenderLimitWarning totalCount={totalCount} entityName="journal entries" />
+          </div>
+        )}
+
+        {/* Advanced Filter Results Summary */}
+        {!isLoading && advancedFilters.length > 0 && (
+          <div className="px-4 pb-2">
+            <div className="text-sm text-muted-foreground">
+              Showing <strong>{filteredEntries.length}</strong> of <strong>{entries.length}</strong> journal entries
+              {filterBar.filters.length > 0 && ' (combined with filter chips)'}
+            </div>
+          </div>
         )}
 
         <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>

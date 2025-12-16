@@ -8,6 +8,7 @@ import { InvoiceList } from '@/components/invoices/InvoiceList';
 import { InvoiceForm } from '@/components/invoices/InvoiceForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
+import { RenderLimitWarning } from '@/components/shared/RenderLimitWarning';
 import { Invoice, InvoiceStatus } from '@/data/mockInvoices';
 import { useInvoices, useCreateInvoice, useUpdateInvoice } from '@/hooks/useInvoices';
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,6 +22,10 @@ import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import { InvoicesErrorFallback } from '@/components/shared/FeatureErrorFallback';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2 } from 'lucide-react';
+import { AdvancedFilter } from '@/components/shared/AdvancedFilter';
+import { INVOICE_FILTER_CONFIG } from '@/config/filterConfig';
+import { Filter } from '@/types/filter';
+import { applyFilters } from '@/lib/filterUtils';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -60,7 +65,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: invoices = [], isLoading, isFetching, error } = useInvoices('comp-1');
+  const { data: invoices = [], totalCount, isLoading, isFetching, error } = useInvoices('comp-1');
   const queryClient = useQueryClient();
   const createInvoiceMutation = useCreateInvoice();
   const updateInvoiceMutation = useUpdateInvoice();
@@ -68,6 +73,9 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  
+  // NEW: Advanced filter state
+  const [advancedFilters, setAdvancedFilters] = useState<Filter[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
@@ -85,7 +93,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   const filteredInvoices = useMemo(() => {
     let result = invoices;
     
-    // Apply filter chips
+    // Apply filter chips (old filter system)
     filterBar.filters.forEach(chip => {
       if (chip.type === 'status') {
         result = result.filter(inv => inv.status === chip.value);
@@ -104,8 +112,20 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
       );
     }
     
+    // NEW: Apply advanced filters
+    if (advancedFilters.length > 0) {
+      result = applyFilters(result, advancedFilters);
+    }
+    
     return result;
-  }, [invoices, searchQuery, filterBar.filters, filterBar.isOpen]);
+  }, [invoices, searchQuery, filterBar.filters, filterBar.isOpen, advancedFilters]);
+
+  // Apply render limit AFTER filtering to ensure we search all data
+  // but only render a safe amount
+  const displayInvoices = useMemo(() => {
+    const MAX_RENDER_LIMIT = 1000;
+    return filteredInvoices.slice(0, MAX_RENDER_LIMIT);
+  }, [filteredInvoices]);
 
   // Export handler
   const handleExport = useCallback(() => {
@@ -349,6 +369,13 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
           hideSearch={filterBar.isOpen}
           actions={
             <div className="flex items-center gap-2">
+              <AdvancedFilter
+                filters={advancedFilters}
+                config={INVOICE_FILTER_CONFIG}
+                onChange={setAdvancedFilters}
+                triggerLabel="Add Filter"
+                shortcutHint="⌘F"
+              />
               <ExportButton onClick={handleExport} itemCount={filteredInvoices.length} />
               <Button size="sm" onClick={handleNewInvoice} className="h-8 gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
@@ -370,6 +397,27 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
           />
         )}
 
+        {/* Render Limit Warning - shown when dataset exceeds MAX_RENDER_LIMIT */}
+        {!isLoading && (
+          <div className="px-4 pt-4">
+            <RenderLimitWarning totalCount={totalCount} entityName="invoices" />
+          </div>
+        )}
+
+        {/* Advanced Filter Results Summary */}
+        {!isLoading && advancedFilters.length > 0 && (
+          <div className="px-4 pb-2">
+            <div className="text-sm text-muted-foreground">
+              Showing <strong>{displayInvoices.length}</strong> of <strong>{filteredInvoices.length}</strong> filtered invoices
+              {filteredInvoices.length < invoices.length && ` (${invoices.length} total)`}
+              {filterBar.filters.length > 0 && ' (combined with filter chips)'}
+              {filteredInvoices.length > displayInvoices.length && (
+                <span className="text-amber-600 font-medium"> - Displaying first 1,000 results, refine filters to see more</span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
           {/* Initial loading state - show skeleton */}
           {isLoading ? (
@@ -383,7 +431,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
             </div>
-          ) : filteredInvoices.length === 0 ? (
+          ) : displayInvoices.length === 0 ? (
             /* Empty state - no data after loading */
             <div className="flex items-center justify-center h-full text-muted-foreground">
               <p>No invoices found</p>
@@ -392,7 +440,7 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
             /* Normal state - render list with data */
             <>
               <InvoiceList 
-                invoices={filteredInvoices}
+                invoices={displayInvoices}
                 onInvoiceOpen={handleInvoiceOpen}
                 onInvoiceSelect={handleInvoiceSelect}
               />

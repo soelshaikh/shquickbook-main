@@ -1,14 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { dataService } from '@/services/dataService';
 import type { JournalEntry } from '@/data/mockJournalEntries';
+import { useMemo } from 'react';
+import { MAX_RENDER_LIMIT } from '@/lib/constants';
 
 export function useJournalEntries(companyId: string, filters?: any) {
-  return useQuery({
+  const query = useQuery({
     queryKey: ['journalEntries', companyId, filters],
     queryFn: () => dataService.getJournalEntries(companyId, filters),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
+
+  // Return full dataset - let the page apply filters first, then limit
+  // This ensures filters search the entire dataset, not just the first 1k
+  return {
+    ...query,
+    data: query.data || [],
+    // Expose full count for warning banner
+    totalCount: query.data?.length ?? 0,
+  };
 }
 
 export function useJournalEntryById(id: string) {

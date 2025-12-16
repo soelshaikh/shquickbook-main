@@ -5,6 +5,7 @@ import { FilterBar, FilterConfig, useFilterBar } from '@/components/shared/Filte
 import { TransactionList } from '@/components/transactions/TransactionList';
 import { TransactionDetail } from '@/components/transactions/TransactionDetail';
 import { ExportButton } from '@/components/shared/ExportButton';
+import { RenderLimitWarning } from '@/components/shared/RenderLimitWarning';
 import { Transaction } from '@/data/mockTransactions';
 import { useTransactions } from '@/hooks/useTransactions';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,10 @@ import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import { TransactionsErrorFallback } from '@/components/shared/FeatureErrorFallback';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2 } from 'lucide-react';
+import { AdvancedFilter } from '@/components/shared/AdvancedFilter';
+import { TRANSACTION_FILTER_CONFIG } from '@/config/filterConfig';
+import { Filter } from '@/types/filter';
+import { applyFilters } from '@/lib/filterUtils';
 
 const FILTER_CONFIGS: FilterConfig[] = [
   {
@@ -56,11 +61,14 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
   
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: transactions = [], isLoading, isFetching, error } = useTransactions('comp-1');
+  const { data: transactions = [], totalCount, isLoading, isFetching, error } = useTransactions('comp-1');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'date' | 'memo' | null>(null);
   const [quickEditValue, setQuickEditValue] = useState('');
+  
+  // NEW: Advanced filter state
+  const [advancedFilters, setAdvancedFilters] = useState<Filter[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
@@ -78,7 +86,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
   const filteredTransactions = useMemo(() => {
     let result = transactions;
     
-    // Apply filter chips
+    // Apply filter chips (old filter system)
     filterBar.filters.forEach(chip => {
       if (chip.type === 'type') {
         result = result.filter(txn => txn.type.toLowerCase() === chip.value);
@@ -100,8 +108,13 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
       );
     }
     
+    // NEW: Apply advanced filters
+    if (advancedFilters.length > 0) {
+      result = applyFilters(result, advancedFilters);
+    }
+    
     return result;
-  }, [transactions, searchQuery, filterBar.filters, filterBar.isOpen]);
+  }, [transactions, searchQuery, filterBar.filters, filterBar.isOpen, advancedFilters]);
 
   // Export handler
   const handleExport = useCallback(() => {
@@ -211,7 +224,16 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
         searchInputRef={searchInputRef}
         hideSearch={filterBar.isOpen}
         actions={
-          <ExportButton onClick={handleExport} itemCount={filteredTransactions.length} />
+          <>
+            <AdvancedFilter
+              filters={advancedFilters}
+              config={TRANSACTION_FILTER_CONFIG}
+              onChange={setAdvancedFilters}
+              triggerLabel="Add Filter"
+              shortcutHint="⌘F"
+            />
+            <ExportButton onClick={handleExport} itemCount={filteredTransactions.length} />
+          </>
         }
       />
 
@@ -224,6 +246,23 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
           placeholder="Filter transactions... (Tab to lock)"
           onClose={filterBar.close}
         />
+      )}
+
+      {/* Render Limit Warning - shown when dataset exceeds MAX_RENDER_LIMIT */}
+      {!isLoading && (
+        <div className="px-4 pt-4">
+          <RenderLimitWarning totalCount={totalCount} entityName="transactions" />
+        </div>
+      )}
+
+      {/* Advanced Filter Results Summary */}
+      {!isLoading && advancedFilters.length > 0 && (
+        <div className="px-4 pb-2">
+          <div className="text-sm text-muted-foreground">
+            Showing <strong>{filteredTransactions.length}</strong> of <strong>{transactions.length}</strong> transactions
+            {filterBar.filters.length > 0 && ' (combined with filter chips)'}
+          </div>
+        </div>
       )}
 
       {/* Quick Edit Overlay */}
