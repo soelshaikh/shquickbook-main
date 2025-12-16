@@ -323,7 +323,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
           </div>
         )}
 
-        <div ref={listContainerRef} className="flex-1 overflow-hidden" tabIndex={-1}>
+        <div ref={listContainerRef} className="flex-1 overflow-hidden relative" tabIndex={-1}>
           {/* Initial loading state - show skeleton */}
           {isLoading ? (
             <div className="p-4 space-y-3">
