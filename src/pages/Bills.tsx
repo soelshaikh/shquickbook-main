@@ -115,6 +115,13 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
     return result;
   }, [bills, searchQuery, filterBar.filters, filterBar.isOpen, advancedFilters]);
 
+  // Apply render limit AFTER filtering to ensure we search all data
+  // but only render a safe amount
+  const displayBills = useMemo(() => {
+    const MAX_RENDER_LIMIT = 1000;
+    return filteredBills.slice(0, MAX_RENDER_LIMIT);
+  }, [filteredBills]);
+
   // Export handler
   const handleExport = useCallback(() => {
     exportToCSV({
@@ -335,8 +342,12 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
         {!isLoading && advancedFilters.length > 0 && (
           <div className="px-4 pb-2">
             <div className="text-sm text-muted-foreground">
-              Showing <strong>{filteredBills.length}</strong> of <strong>{bills.length}</strong> bills
+              Showing <strong>{displayBills.length}</strong> of <strong>{filteredBills.length}</strong> filtered bills
+              {filteredBills.length < bills.length && ` (${bills.length} total)`}
               {filterBar.filters.length > 0 && ' (combined with filter chips)'}
+              {filteredBills.length > displayBills.length && (
+                <span className="text-amber-600 font-medium"> - Displaying first 1,000 results, refine filters to see more</span>
+              )}
             </div>
           </div>
         )}
@@ -354,7 +365,7 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
             </div>
-          ) : filteredBills.length === 0 ? (
+          ) : displayBills.length === 0 ? (
             /* Empty state - no data after loading */
             <div className="flex items-center justify-center h-full text-muted-foreground">
               <p>No bills found</p>
@@ -363,7 +374,7 @@ const Bills = forwardRef<HTMLDivElement>((_, ref) => {
             /* Normal state - render list with data */
             <>
               <BillList
-                bills={filteredBills}
+                bills={displayBills}
                 onEdit={handleEditBill}
                 onSelect={handleBillSelect}
               />

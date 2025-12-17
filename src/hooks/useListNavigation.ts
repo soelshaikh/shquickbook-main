@@ -94,7 +94,11 @@ export function useListNavigation({
 
       // Shift+Arrow: Range selection
       if (e.shiftKey) {
+        // Set anchor on first shift selection, then keep it fixed
         const anchor = anchorIndex ?? focusedIndex;
+        if (anchorIndex === null) {
+          setAnchorIndex(anchor);
+        }
         selectRange(anchor, newIndex);
       } else if (!isMod) {
         // Normal navigation clears selection

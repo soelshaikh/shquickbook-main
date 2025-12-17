@@ -316,6 +316,230 @@ export const JOURNAL_ENTRY_FILTER_CONFIG: FilterConfig = {
 };
 
 /**
+ * Customer Payment Filter Configuration
+ */
+export const CUSTOMER_PAYMENT_FILTER_CONFIG: FilterConfig = {
+  entity: 'Customer Payment',
+  fields: [
+    {
+      key: 'txnDate',
+      label: 'Transaction Date',
+      type: 'date',
+      operators: DATE_OPERATORS,
+    },
+    {
+      key: 'amount',
+      label: 'Amount',
+      type: 'number',
+      operators: NUMBER_OPERATORS,
+      placeholder: 'Enter amount...',
+    },
+    {
+      key: 'paymentMethod',
+      label: 'Payment Method',
+      type: 'select',
+      operators: SELECT_OPERATORS,
+      options: [
+        { label: 'Cash', value: 'Cash' },
+        { label: 'Check', value: 'Check' },
+        { label: 'Credit Card', value: 'Credit Card' },
+        { label: 'Bank Transfer', value: 'Bank Transfer' },
+        { label: 'ACH', value: 'ACH' },
+        { label: 'Other', value: 'Other' },
+      ],
+    },
+    {
+      key: 'referenceNumber',
+      label: 'Reference Number',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter reference number...',
+    },
+    {
+      key: 'customerName',
+      label: 'Customer Name',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter customer name...',
+    },
+    {
+      key: 'memo',
+      label: 'Memo',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter memo...',
+    },
+  ],
+};
+
+/**
+ * Vendor Payment Filter Configuration
+ */
+export const VENDOR_PAYMENT_FILTER_CONFIG: FilterConfig = {
+  entity: 'Vendor Payment',
+  fields: [
+    {
+      key: 'txnDate',
+      label: 'Transaction Date',
+      type: 'date',
+      operators: DATE_OPERATORS,
+    },
+    {
+      key: 'amount',
+      label: 'Amount',
+      type: 'number',
+      operators: NUMBER_OPERATORS,
+      placeholder: 'Enter amount...',
+    },
+    {
+      key: 'paymentMethod',
+      label: 'Payment Method',
+      type: 'select',
+      operators: SELECT_OPERATORS,
+      options: [
+        { label: 'Cash', value: 'Cash' },
+        { label: 'Check', value: 'Check' },
+        { label: 'Credit Card', value: 'Credit Card' },
+        { label: 'Bank Transfer', value: 'Bank Transfer' },
+        { label: 'ACH', value: 'ACH' },
+        { label: 'Other', value: 'Other' },
+      ],
+    },
+    {
+      key: 'referenceNumber',
+      label: 'Reference Number',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter reference number...',
+    },
+    {
+      key: 'vendorName',
+      label: 'Vendor Name',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter vendor name...',
+    },
+    {
+      key: 'memo',
+      label: 'Memo',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter memo...',
+    },
+  ],
+};
+
+/**
+ * Credit Memo Filter Configuration
+ */
+export const CREDIT_MEMO_FILTER_CONFIG: FilterConfig = {
+  entity: 'Credit Memo',
+  fields: [
+    {
+      key: 'txnDate',
+      label: 'Transaction Date',
+      type: 'date',
+      operators: DATE_OPERATORS,
+    },
+    {
+      key: 'totalAmount',
+      label: 'Total Amount',
+      type: 'number',
+      operators: NUMBER_OPERATORS,
+      placeholder: 'Enter amount...',
+    },
+    {
+      key: 'customerName',
+      label: 'Customer Name',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter customer name...',
+    },
+    {
+      key: 'invoiceId',
+      label: 'Invoice ID',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter invoice ID...',
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'select',
+      operators: SELECT_OPERATORS,
+      options: [
+        { label: 'Draft', value: 'draft' },
+        { label: 'Pending', value: 'pending' },
+        { label: 'Applied', value: 'applied' },
+        { label: 'Voided', value: 'voided' },
+      ],
+    },
+    {
+      key: 'memo',
+      label: 'Memo',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter memo...',
+    },
+  ],
+};
+
+/**
+ * Deposit Filter Configuration
+ */
+export const DEPOSIT_FILTER_CONFIG: FilterConfig = {
+  entity: 'Deposit',
+  fields: [
+    {
+      key: 'txnDate',
+      label: 'Transaction Date',
+      type: 'date',
+      operators: DATE_OPERATORS,
+    },
+    {
+      key: 'totalAmount',
+      label: 'Total Amount',
+      type: 'number',
+      operators: NUMBER_OPERATORS,
+      placeholder: 'Enter amount...',
+    },
+    {
+      key: 'bankAccountName',
+      label: 'Bank Account',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter bank account...',
+    },
+    {
+      key: 'referenceNumber',
+      label: 'Reference Number',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter reference number...',
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'select',
+      operators: SELECT_OPERATORS,
+      options: [
+        { label: 'Pending', value: 'pending' },
+        { label: 'Cleared', value: 'cleared' },
+        { label: 'Reconciled', value: 'reconciled' },
+        { label: 'Voided', value: 'voided' },
+      ],
+    },
+    {
+      key: 'memo',
+      label: 'Memo',
+      type: 'text',
+      operators: TEXT_OPERATORS,
+      placeholder: 'Enter memo...',
+    },
+  ],
+};
+
+/**
  * Helper to get filter config by entity type
  */
 export function getFilterConfig(entityType: 'transaction' | 'invoice' | 'bill' | 'journalEntry'): FilterConfig {

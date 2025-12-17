@@ -85,3 +85,19 @@ export const JournalEntriesErrorFallback: React.FC<{ onReset?: () => void; error
 export const TransactionsErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
   <FeatureErrorFallback featureName="Transactions" onReset={onReset} error={error} />
 );
+
+export const CustomerPaymentsErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Customer Payments" onReset={onReset} error={error} />
+);
+
+export const VendorPaymentsErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Vendor Payments" onReset={onReset} error={error} />
+);
+
+export const CreditMemosErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Credit Memos" onReset={onReset} error={error} />
+);
+
+export const DepositsErrorFallback: React.FC<{ onReset?: () => void; error?: unknown }> = ({ onReset, error }) => (
+  <FeatureErrorFallback featureName="Deposits" onReset={onReset} error={error} />
+);

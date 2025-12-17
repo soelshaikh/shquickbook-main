@@ -59,9 +59,56 @@ export interface CachedJournalEntry {
   [key: string]: any;
 }
 
+export interface CachedCustomerPayment {
+  id: string;
+  companyId: string;
+  customerId: string;
+  txnDate: string;
+  amount: number;
+  syncStatus: 'SYNCED' | 'PENDING_SYNC' | 'FAILED';
+  cachedAt: number;
+  [key: string]: any;
+}
+
+export interface CachedVendorPayment {
+  id: string;
+  companyId: string;
+  vendorId: string;
+  txnDate: string;
+  amount: number;
+  syncStatus: 'SYNCED' | 'PENDING_SYNC' | 'FAILED';
+  cachedAt: number;
+  [key: string]: any;
+}
+
+export interface CachedCreditMemo {
+  id: string;
+  companyId: string;
+  customerId: string;
+  invoiceId?: string; // Optional reference to invoice being credited
+  txnDate: string;
+  totalAmount: number;
+  status: string;
+  syncStatus: 'SYNCED' | 'PENDING_SYNC' | 'FAILED';
+  cachedAt: number;
+  [key: string]: any;
+}
+
+export interface CachedDeposit {
+  id: string;
+  companyId: string;
+  txnDate: string;
+  depositToAccountId: string;
+  totalAmount: number;
+  memo?: string;
+  syncStatus: 'SYNCED' | 'PENDING_SYNC' | 'FAILED';
+  cachedAt: number;
+  [key: string]: any;
+}
+
 export interface SyncQueueItem {
   id?: number; // Auto-increment
-  entityType: 'invoice' | 'bill' | 'transaction' | 'journalEntry';
+  entityType: 'invoice' | 'bill' | 'transaction' | 'journalEntry' | 'customerPayment' | 'vendorPayment' | 'creditMemo' | 'deposit';
   entityId: string;
   operation: 'CREATE' | 'UPDATE' | 'DELETE';
   payload: any;
@@ -79,6 +126,10 @@ export class AppDatabase extends Dexie {
   bills!: Table<CachedBill, string>;
   transactions!: Table<CachedTransaction, string>;
   journalEntries!: Table<CachedJournalEntry, string>;
+  customerPayments!: Table<CachedCustomerPayment, string>;
+  vendorPayments!: Table<CachedVendorPayment, string>;
+  creditMemos!: Table<CachedCreditMemo, string>;
+  deposits!: Table<CachedDeposit, string>;
   syncQueue!: Table<SyncQueueItem, number>;
 
   constructor() {
@@ -96,6 +147,18 @@ export class AppDatabase extends Dexie {
       
       // Journal Entries: indexed by id, companyId, status
       journalEntries: 'id, companyId, status, syncStatus, [companyId+status], cachedAt',
+      
+      // Customer Payments: indexed by id, companyId, syncStatus
+      customerPayments: 'id, companyId, customerId, syncStatus, cachedAt',
+      
+      // Vendor Payments: indexed by id, companyId, syncStatus
+      vendorPayments: 'id, companyId, vendorId, syncStatus, cachedAt',
+      
+      // Credit Memos: indexed by id, companyId, invoiceId, status, syncStatus
+      creditMemos: 'id, companyId, customerId, invoiceId, status, syncStatus, [companyId+status], cachedAt',
+      
+      // Deposits: indexed by id, companyId, depositToAccountId, syncStatus
+      deposits: 'id, companyId, depositToAccountId, syncStatus, cachedAt',
       
       // Sync Queue: auto-increment id, indexed by status and createdAt
       syncQueue: '++id, entityType, entityId, status, createdAt',
@@ -207,6 +270,10 @@ export const dbHelpers = {
       db.bills.where('cachedAt').below(cutoffTime).delete(),
       db.transactions.where('cachedAt').below(cutoffTime).delete(),
       db.journalEntries.where('cachedAt').below(cutoffTime).delete(),
+      db.customerPayments.where('cachedAt').below(cutoffTime).delete(),
+      db.vendorPayments.where('cachedAt').below(cutoffTime).delete(),
+      db.creditMemos.where('cachedAt').below(cutoffTime).delete(),
+      db.deposits.where('cachedAt').below(cutoffTime).delete(),
     ]);
   },
 };

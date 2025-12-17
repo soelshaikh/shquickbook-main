@@ -31,6 +31,10 @@ const shortcuts = [
       { keys: ['I'], description: 'Go to Invoices / New Invoice (on page)' },
       { keys: ['B'], description: 'Go to Bills / New Bill (on page)' },
       { keys: ['J'], description: 'Go to Journal Entries / New Entry (on page)' },
+      { keys: ['P'], description: 'Go to Customer Payments' },
+      { keys: ['V'], description: 'Go to Vendor Payments' },
+      { keys: ['C'], description: 'Go to Credit Memos' },
+      { keys: ['D'], description: 'Go to Deposits' },
     ],
   },
   {

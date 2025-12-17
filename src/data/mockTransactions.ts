@@ -5,6 +5,7 @@ export type TransactionStatus = 'synced' | 'pending' | 'error' | 'conflict';
 
 export interface Transaction {
   id: string;
+  companyId: string;
   date: string;
   type: TransactionType;
   docNumber: string;
@@ -56,6 +57,7 @@ function generateMockTransactions(count: number): Transaction[] {
 
     transactions.push({
       id: `txn-${String(i + 1).padStart(6, '0')}`,
+      companyId: 'comp-1', // Default company for mock data
       date: date.toISOString().split('T')[0],
       type,
       docNumber: `${type.charAt(0).toUpperCase()}-${String(1000 + i).padStart(5, '0')}`,
@@ -71,4 +73,4 @@ function generateMockTransactions(count: number): Transaction[] {
   return transactions;
 }
 
-export const mockTransactions = generateMockTransactions(500);
+export const mockTransactions = generateMockTransactions(5000);

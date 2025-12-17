@@ -21,6 +21,9 @@ export function ListFooter({
             Multi-select: <kbd className="kbd">Shift</kbd>+<kbd className="kbd">↑↓</kbd>
           </span>
           <span>
+            Select all: <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">A</kbd>
+          </span>
+          <span>
             Export: <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Shift</kbd>+<kbd className="kbd">E</kbd>
           </span>
         </div>

@@ -151,6 +151,34 @@ export function AppShell({ children }: AppShellProps) {
       return;
     }
 
+    // P key: Go to Customer Payments
+    if (e.key.toLowerCase() === 'p' && !isMod) {
+      e.preventDefault();
+      navigate('/customer-payments?focus=list');
+      return;
+    }
+
+    // V key: Go to Vendor Payments
+    if (e.key.toLowerCase() === 'v' && !isMod) {
+      e.preventDefault();
+      navigate('/vendor-payments?focus=list');
+      return;
+    }
+
+    // C key: Go to Credit Memos
+    if (e.key.toLowerCase() === 'c' && !isMod) {
+      e.preventDefault();
+      navigate('/credit-memos?focus=list');
+      return;
+    }
+
+    // D key: Go to Deposits
+    if (e.key.toLowerCase() === 'd' && !isMod) {
+      e.preventDefault();
+      navigate('/deposits?focus=list');
+      return;
+    }
+
     // T key: Go to Transactions
     if (e.key.toLowerCase() === 't' && !isMod) {
       e.preventDefault();

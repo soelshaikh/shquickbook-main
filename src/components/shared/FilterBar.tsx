@@ -229,9 +229,9 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(function Fil
                 idx === selectedSuggestion && 'bg-muted'
               )}
             >
-              {!lockedType && (
+               {/* {!lockedType && (
                 <span className="text-muted-foreground text-xs font-mono w-16">{item.value}:</span>
-              )}
+              )} */}
               <span>{item.label}</span>
               {idx === selectedSuggestion && (
                 <span className="ml-auto text-xs text-muted-foreground">

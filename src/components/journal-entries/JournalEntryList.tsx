@@ -79,7 +79,14 @@ export const JournalEntryList = forwardRef<JournalEntryListRef, JournalEntryList
       });
     }, [entries, onEntryOpen, measureAction]);
 
-    const handleContainerKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Enhanced keyboard handler with Enter to open
+    const handleKeyDownWrapper = useCallback((e: KeyboardEvent) => {
+      // Don't handle if user is typing in an input
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
       // Handle Enter to open
       if (e.key === 'Enter' && selectedIndices.size === 1) {
         const selectedIndex = Array.from(selectedIndices)[0];
@@ -96,15 +103,19 @@ export const JournalEntryList = forwardRef<JournalEntryListRef, JournalEntryList
         return;
       }
 
-      handleKeyDown(e.nativeEvent);
+      handleKeyDown(e);
     }, [handleKeyDown, selectedIndices, entries, onEntryOpen]);
+
+    // Keyboard event listener (global)
+    useEffect(() => {
+      window.addEventListener('keydown', handleKeyDownWrapper);
+      return () => window.removeEventListener('keydown', handleKeyDownWrapper);
+    }, [handleKeyDownWrapper]);
 
     return (
       <div 
         ref={containerRef}
-        className="h-full flex flex-col focus:outline-none"
-        tabIndex={0}
-        onKeyDown={handleContainerKeyDown}
+        className="h-full flex flex-col"
       >
         <JournalEntryListHeader 
           selectedCount={selectedIndices.size} 

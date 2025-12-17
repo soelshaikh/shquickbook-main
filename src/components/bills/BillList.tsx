@@ -73,7 +73,14 @@ export function BillList({ bills, onSelect, onEdit }: BillListProps) {
     });
   }, [onEdit, measureAction]);
 
-  const handleContainerKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+  // Enhanced keyboard handler with Enter to open
+  const handleKeyDownWrapper = useCallback((e: KeyboardEvent) => {
+    // Don't handle if user is typing in an input
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+
     // Handle Enter to open
     if (e.key === 'Enter' && selectedIndices.size === 1) {
       const selectedIndex = Array.from(selectedIndices)[0];
@@ -90,15 +97,19 @@ export function BillList({ bills, onSelect, onEdit }: BillListProps) {
       return;
     }
     
-    handleKeyDown(e as unknown as globalThis.KeyboardEvent);
+    handleKeyDown(e);
   }, [handleKeyDown, selectedIndices, bills, onEdit]);
+
+  // Keyboard event listener (global)
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDownWrapper);
+    return () => window.removeEventListener('keydown', handleKeyDownWrapper);
+  }, [handleKeyDownWrapper]);
 
   return (
     <div 
       ref={containerRef}
-      className="h-full flex flex-col focus:outline-none"
-      tabIndex={0}
-      onKeyDown={handleContainerKeyDown}
+      className="h-full flex flex-col"
     >
       <BillListHeader 
         selectedCount={selectedIndices.size} 

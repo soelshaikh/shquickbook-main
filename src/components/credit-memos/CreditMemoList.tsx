@@ -1,19 +1,19 @@
-import { useRef, useCallback, useEffect, KeyboardEvent } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Invoice } from '@/data/mockInvoices';
-import { InvoiceRow } from './InvoiceRow';
-import { InvoiceListHeader } from './InvoiceListHeader';
+import { CreditMemoRow } from './CreditMemoRow';
+import { CreditMemoListHeader } from './CreditMemoListHeader';
 import { ListFooter } from '@/components/shared/ListFooter';
 import { useListNavigation } from '@/hooks/useListNavigation';
+import { CreditMemo } from '@/services/dataService';
 import { useActionPerformance } from '@/hooks/usePerformance';
 
-interface InvoiceListProps {
-  invoices: Invoice[];
-  onInvoiceSelect?: (invoice: Invoice) => void;
-  onInvoiceOpen?: (invoice: Invoice) => void;
+interface CreditMemoListProps {
+  creditMemos: CreditMemo[];
+  onCreditMemoSelect?: (creditMemo: CreditMemo) => void;
+  onCreditMemoOpen?: (creditMemo: CreditMemo) => void;
 }
 
-export function InvoiceList({ invoices, onInvoiceSelect, onInvoiceOpen }: InvoiceListProps) {
+export function CreditMemoList({ creditMemos, onCreditMemoSelect, onCreditMemoOpen }: CreditMemoListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { measureAction } = useActionPerformance();
@@ -21,29 +21,26 @@ export function InvoiceList({ invoices, onInvoiceSelect, onInvoiceOpen }: Invoic
   const {
     focusedIndex,
     selectedIndices,
-    anchorIndex,
     isSelected,
     isFocused,
     handleKeyDown,
     selectIndex,
-    selectRange,
     clearSelection,
   } = useListNavigation({
-    itemCount: invoices.length,
+    itemCount: creditMemos.length,
     onSelect: (index) => {
-      onInvoiceSelect?.(invoices[index]);
+      onCreditMemoSelect?.(creditMemos[index]);
     },
     enabled: true,
   });
 
   const virtualizer = useVirtualizer({
-    count: invoices.length,
+    count: creditMemos.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 32, // h-8 = 32px
+    estimateSize: () => 32,
     overscan: 10,
   });
 
-  // Scroll focused row into view
   useEffect(() => {
     if (focusedIndex >= 0) {
       virtualizer.scrollToIndex(focusedIndex, { align: 'auto' });
@@ -51,66 +48,45 @@ export function InvoiceList({ invoices, onInvoiceSelect, onInvoiceOpen }: Invoic
   }, [focusedIndex, virtualizer]);
 
   const handleRowClick = useCallback((index: number, event: React.MouseEvent) => {
-    measureAction('Invoice Row Select', () => {
-      if (event.shiftKey && selectedIndices.size > 0) {
-        const anchor = anchorIndex ?? Array.from(selectedIndices)[0];
-        selectRange(anchor, index);
-      } else if (event.metaKey || event.ctrlKey) {
+    measureAction('CreditMemo Row Select', () => {
+      if (event.metaKey || event.ctrlKey) {
         selectIndex(index, true);
       } else {
         clearSelection();
         selectIndex(index, false);
       }
     });
-  }, [selectedIndices, anchorIndex, selectIndex, selectRange, clearSelection, measureAction]);
+  }, [selectIndex, clearSelection, measureAction]);
 
   const handleRowDoubleClick = useCallback((index: number) => {
-    measureAction('Invoice Open', () => {
-      onInvoiceOpen?.(invoices[index]);
+    measureAction('CreditMemo Row Open', () => {
+      onCreditMemoOpen?.(creditMemos[index]);
     });
-  }, [invoices, onInvoiceOpen, measureAction]);
-
-  // Enhanced keyboard handler with Enter to open
-  const handleKeyDownWrapper = useCallback((e: KeyboardEvent) => {
-    // Don't handle if user is typing in an input
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-      return;
-    }
-
-    // Handle Enter to open
-    if (e.key === 'Enter' && selectedIndices.size === 1) {
-      const selectedIndex = Array.from(selectedIndices)[0];
-      onInvoiceOpen?.(invoices[selectedIndex]);
-      e.preventDefault();
-      return;
-    }
-
-    // Handle 'E' for edit
-    if ((e.key === 'e' || e.key === 'E') && selectedIndices.size === 1) {
-      const selectedIndex = Array.from(selectedIndices)[0];
-      onInvoiceOpen?.(invoices[selectedIndex]);
-      e.preventDefault();
-      return;
-    }
-    
-    handleKeyDown(e);
-  }, [handleKeyDown, selectedIndices, invoices, onInvoiceOpen]);
+  }, [creditMemos, onCreditMemoOpen, measureAction]);
 
   // Keyboard event listener (global)
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDownWrapper);
-    return () => window.removeEventListener('keydown', handleKeyDownWrapper);
-  }, [handleKeyDownWrapper]);
+    const handler = (e: KeyboardEvent) => {
+      // Don't handle if user is typing in an input
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+      handleKeyDown(e);
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleKeyDown]);
 
   return (
     <div 
       ref={containerRef}
       className="h-full flex flex-col"
     >
-      <InvoiceListHeader 
+      <CreditMemoListHeader 
         selectedCount={selectedIndices.size} 
-        totalCount={invoices.length} 
+        totalCount={creditMemos.length} 
       />
       
       <div 
@@ -125,11 +101,11 @@ export function InvoiceList({ invoices, onInvoiceSelect, onInvoiceOpen }: Invoic
           }}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
-            const invoice = invoices[virtualRow.index];
+            const creditMemo = creditMemos[virtualRow.index];
             return (
-              <InvoiceRow
-                key={invoice.id}
-                invoice={invoice}
+              <CreditMemoRow
+                key={creditMemo.id}
+                creditMemo={creditMemo}
                 isSelected={isSelected(virtualRow.index)}
                 isFocused={isFocused(virtualRow.index)}
                 isMultiSelected={isSelected(virtualRow.index) && selectedIndices.size > 1}
@@ -149,12 +125,12 @@ export function InvoiceList({ invoices, onInvoiceSelect, onInvoiceOpen }: Invoic
         </div>
       </div>
       
-      {invoices.length === 0 ? (
+      {creditMemos.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-          No invoices found
+          No credit memos found
         </div>
       ) : (
-        <ListFooter itemCount={invoices.length} itemLabel="invoices" />
+        <ListFooter itemCount={creditMemos.length} itemLabel="credit memos" />
       )}
     </div>
   );

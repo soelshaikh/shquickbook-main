@@ -116,6 +116,13 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
     return result;
   }, [transactions, searchQuery, filterBar.filters, filterBar.isOpen, advancedFilters]);
 
+  // Apply render limit AFTER filtering to ensure we search all data
+  // but only render a safe amount
+  const displayTransactions = useMemo(() => {
+    const MAX_RENDER_LIMIT = 1000;
+    return filteredTransactions.slice(0, MAX_RENDER_LIMIT);
+  }, [filteredTransactions]);
+
   // Export handler
   const handleExport = useCallback(() => {
     exportToCSV({
@@ -259,8 +266,12 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
       {!isLoading && advancedFilters.length > 0 && (
         <div className="px-4 pb-2">
           <div className="text-sm text-muted-foreground">
-            Showing <strong>{filteredTransactions.length}</strong> of <strong>{transactions.length}</strong> transactions
+            Showing <strong>{displayTransactions.length}</strong> of <strong>{filteredTransactions.length}</strong> filtered transactions
+            {filteredTransactions.length < transactions.length && ` (${transactions.length} total)`}
             {filterBar.filters.length > 0 && ' (combined with filter chips)'}
+            {filteredTransactions.length > displayTransactions.length && (
+              <span className="text-amber-600 font-medium"> - Displaying first 1,000 results, refine filters to see more</span>
+            )}
           </div>
         </div>
       )}
@@ -308,7 +319,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-12 w-full" />
           </div>
-        ) : filteredTransactions.length === 0 ? (
+        ) : displayTransactions.length === 0 ? (
           /* Empty state - no data after loading */
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <p>No transactions found</p>
@@ -317,7 +328,7 @@ const Transactions = forwardRef<HTMLDivElement>((_, ref) => {
           /* Normal state - render list with data */
           <>
             <TransactionList 
-              transactions={filteredTransactions}
+              transactions={displayTransactions}
               onTransactionSelect={setSelectedTransaction}
               onTransactionOpen={handleTransactionSelect}
             />

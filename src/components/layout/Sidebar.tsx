@@ -5,7 +5,11 @@ import {
   Receipt, 
   BookOpen,
   Settings,
-  Link as LinkIcon
+  Link as LinkIcon,
+  CreditCard,
+  Wallet,
+  FileX,
+  Landmark
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useConnection } from '@/contexts/ConnectionContext';
@@ -22,6 +26,10 @@ const navItems: NavItem[] = [
   { label: 'Invoices', path: '/invoices', icon: FileText, shortcut: 'I' },
   { label: 'Bills', path: '/bills', icon: Receipt, shortcut: 'B' },
   { label: 'Journal Entries', path: '/journal-entries', icon: BookOpen, shortcut: 'J' },
+  { label: 'Customer Payments', path: '/customer-payments', icon: CreditCard, shortcut: 'C' },
+  { label: 'Vendor Payments', path: '/vendor-payments', icon: Wallet, shortcut: 'V' },
+  { label: 'Credit Memos', path: '/credit-memos', icon: FileX, shortcut: 'M' },
+  { label: 'Deposits', path: '/deposits', icon: Landmark, shortcut: 'D' },
 ];
 
 const bottomNavItems: NavItem[] = [

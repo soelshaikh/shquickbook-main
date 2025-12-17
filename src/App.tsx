@@ -15,6 +15,10 @@ const Transactions = lazy(() => import("./pages/Transactions"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const Bills = lazy(() => import("./pages/Bills"));
 const JournalEntries = lazy(() => import("./pages/JournalEntries"));
+const CustomerPayments = lazy(() => import("./pages/CustomerPayments"));
+const VendorPayments = lazy(() => import("./pages/VendorPayments"));
+const CreditMemos = lazy(() => import("./pages/CreditMemos"));
+const Deposits = lazy(() => import("./pages/Deposits"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Connect = lazy(() => import("./pages/Connect"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -42,6 +46,10 @@ function AppContent() {
             <Route path="/invoices" element={<Invoices />} />
             <Route path="/bills" element={<Bills />} />
             <Route path="/journal-entries" element={<JournalEntries />} />
+            <Route path="/customer-payments" element={<CustomerPayments />} />
+            <Route path="/vendor-payments" element={<VendorPayments />} />
+            <Route path="/credit-memos" element={<CreditMemos />} />
+            <Route path="/deposits" element={<Deposits />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/connect" element={<Navigate to="/transactions" replace />} />
             <Route path="*" element={<NotFound />} />

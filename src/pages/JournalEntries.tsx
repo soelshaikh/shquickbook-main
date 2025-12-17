@@ -103,6 +103,13 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
     return result;
   }, [entries, searchQuery, filterBar.filters, filterBar.isOpen, advancedFilters]);
 
+  // Apply render limit AFTER filtering to ensure we search all data
+  // but only render a safe amount
+  const displayEntries = useMemo(() => {
+    const MAX_RENDER_LIMIT = 1000;
+    return filteredEntries.slice(0, MAX_RENDER_LIMIT);
+  }, [filteredEntries]);
+
   // Export handler
   const handleExport = useCallback(() => {
     exportToCSV({
@@ -317,8 +324,12 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
         {!isLoading && advancedFilters.length > 0 && (
           <div className="px-4 pb-2">
             <div className="text-sm text-muted-foreground">
-              Showing <strong>{filteredEntries.length}</strong> of <strong>{entries.length}</strong> journal entries
+              Showing <strong>{displayEntries.length}</strong> of <strong>{filteredEntries.length}</strong> filtered journal entries
+              {filteredEntries.length < entries.length && ` (${entries.length} total)`}
               {filterBar.filters.length > 0 && ' (combined with filter chips)'}
+              {filteredEntries.length > displayEntries.length && (
+                <span className="text-amber-600 font-medium"> - Displaying first 1,000 results, refine filters to see more</span>
+              )}
             </div>
           </div>
         )}
@@ -336,7 +347,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
             </div>
-          ) : filteredEntries.length === 0 ? (
+          ) : displayEntries.length === 0 ? (
             /* Empty state - no data after loading */
             <div className="flex items-center justify-center h-full text-muted-foreground">
               <p>No journal entries found</p>
@@ -346,7 +357,7 @@ const JournalEntries = forwardRef<HTMLDivElement>((_, ref) => {
             <>
               <JournalEntryList
                 ref={listRef}
-                entries={filteredEntries}
+                entries={displayEntries}
                 onEntryOpen={handleEntryOpen}
                 onEntrySelect={handleEntrySelect}
               />

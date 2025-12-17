@@ -12,6 +12,11 @@ import { mockInvoices, Invoice } from '@/data/mockInvoices';
 import { mockBills, Bill } from '@/data/mockBills';
 import { mockTransactions, Transaction } from '@/data/mockTransactions';
 import { mockJournalEntries, JournalEntry } from '@/data/mockJournalEntries';
+import { mockCustomerPayments } from '@/data/mockCustomerPayments';
+import { mockVendorPayments } from '@/data/mockVendorPayments';
+import { mockCreditMemos } from '@/data/mockCreditMemos';
+import { mockDeposits } from '@/data/mockDeposits';
+import type { CustomerPayment, VendorPayment, CreditMemo, Deposit } from './dataService';
 
 /**
  * Simulate network delay for realistic testing
@@ -327,6 +332,289 @@ export class ApiClient {
     const existing = mockJournalEntries.find(je => je.id === id);
     if (!existing) {
       throw new Error(`Journal Entry ${id} not found`);
+    }
+  }
+
+  // --- CUSTOMER PAYMENTS ---
+
+  async getCustomerPayments(companyId: string, filters?: any): Promise<CustomerPayment[]> {
+    await simulateDelay(250);
+    
+    // TEMPORARY: Filter mock data
+    return mockCustomerPayments.filter(payment => payment.companyId === companyId);
+  }
+
+  async getCustomerPaymentById(id: string): Promise<CustomerPayment | null> {
+    await simulateDelay(200);
+    
+    const payment = mockCustomerPayments.find(p => p.id === id);
+    return payment || null;
+  }
+
+  async createCustomerPayment(data: Partial<CustomerPayment>): Promise<CustomerPayment> {
+    await simulateDelay(400);
+    
+    const newPayment: CustomerPayment = {
+      id: generateId('payment'),
+      companyId: data.companyId || 'comp-1',
+      customerId: data.customerId || '',
+      customerName: data.customerName || '',
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      amount: data.amount || 0,
+      paymentMethod: data.paymentMethod,
+      referenceNumber: data.referenceNumber,
+      depositToAccountId: data.depositToAccountId || '',
+      appliedToInvoices: data.appliedToInvoices || [],
+      memo: data.memo,
+      syncStatus: 'synced',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    return newPayment;
+  }
+
+  async updateCustomerPayment(id: string, data: Partial<CustomerPayment>): Promise<CustomerPayment> {
+    await simulateDelay(350);
+    
+    const existing = mockCustomerPayments.find(p => p.id === id);
+    if (!existing) {
+      throw new Error(`Customer Payment ${id} not found`);
+    }
+    
+    return { 
+      ...existing, 
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async deleteCustomerPayment(id: string): Promise<void> {
+    await simulateDelay(300);
+    
+    const existing = mockCustomerPayments.find(p => p.id === id);
+    if (!existing) {
+      throw new Error(`Customer Payment ${id} not found`);
+    }
+  }
+
+  // --- VENDOR PAYMENTS ---
+
+  async getVendorPayments(companyId: string, filters?: any): Promise<VendorPayment[]> {
+    await simulateDelay(250);
+    
+    // TEMPORARY: Filter mock data
+    return mockVendorPayments.filter(payment => payment.companyId === companyId);
+  }
+
+  async getVendorPaymentById(id: string): Promise<VendorPayment | null> {
+    await simulateDelay(200);
+    
+    const payment = mockVendorPayments.find(p => p.id === id);
+    return payment || null;
+  }
+
+  async createVendorPayment(data: Partial<VendorPayment>): Promise<VendorPayment> {
+    await simulateDelay(400);
+    
+    const newPayment: VendorPayment = {
+      id: generateId('vpayment'),
+      companyId: data.companyId || 'comp-1',
+      vendorId: data.vendorId || '',
+      vendorName: data.vendorName || '',
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      amount: data.amount || 0,
+      paymentMethod: data.paymentMethod,
+      referenceNumber: data.referenceNumber,
+      bankAccountId: data.bankAccountId || '',
+      appliedToBills: data.appliedToBills || [],
+      memo: data.memo,
+      syncStatus: 'synced',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    return newPayment;
+  }
+
+  async updateVendorPayment(id: string, data: Partial<VendorPayment>): Promise<VendorPayment> {
+    await simulateDelay(350);
+    
+    const existing = mockVendorPayments.find(p => p.id === id);
+    if (!existing) {
+      throw new Error(`Vendor Payment ${id} not found`);
+    }
+    
+    return { 
+      ...existing, 
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async deleteVendorPayment(id: string): Promise<void> {
+    await simulateDelay(300);
+    
+    const existing = mockVendorPayments.find(p => p.id === id);
+    if (!existing) {
+      throw new Error(`Vendor Payment ${id} not found`);
+    }
+  }
+
+  // --- CREDIT MEMOS ---
+
+  async getCreditMemos(companyId: string, filters?: any): Promise<CreditMemo[]> {
+    await simulateDelay(250);
+    
+    // TEMPORARY: Filter mock data
+    return mockCreditMemos.filter(memo => memo.companyId === companyId);
+  }
+
+  async getCreditMemoById(id: string): Promise<CreditMemo | null> {
+    await simulateDelay(200);
+    
+    const memo = mockCreditMemos.find(m => m.id === id);
+    return memo || null;
+  }
+
+  async createCreditMemo(data: Partial<CreditMemo>): Promise<CreditMemo> {
+    await simulateDelay(400);
+    
+    const lineItems = data.lineItems || [];
+    const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
+    const taxRate = data.taxRate || 0;
+    const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
+    
+    const newCreditMemo: CreditMemo = {
+      id: generateId('creditmemo'),
+      companyId: data.companyId || 'comp-1',
+      customerId: data.customerId || '',
+      customerName: data.customerName || '',
+      invoiceId: data.invoiceId,
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      lineItems,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      totalAmount: total,
+      status: data.status || 'draft',
+      memo: data.memo,
+      syncStatus: 'synced',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    return newCreditMemo;
+  }
+
+  async updateCreditMemo(id: string, data: Partial<CreditMemo>): Promise<CreditMemo> {
+    await simulateDelay(350);
+    
+    const existing = mockCreditMemos.find(m => m.id === id);
+    if (!existing) {
+      throw new Error(`Credit Memo ${id} not found`);
+    }
+    
+    const lineItems = data.lineItems || existing.lineItems;
+    const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
+    const taxRate = data.taxRate ?? existing.taxRate;
+    const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
+    
+    return { 
+      ...existing, 
+      ...data,
+      lineItems,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      totalAmount: total,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async deleteCreditMemo(id: string): Promise<void> {
+    await simulateDelay(300);
+    
+    const existing = mockCreditMemos.find(m => m.id === id);
+    if (!existing) {
+      throw new Error(`Credit Memo ${id} not found`);
+    }
+  }
+
+  // --- DEPOSITS ---
+
+  async getDeposits(companyId: string, filters?: any): Promise<Deposit[]> {
+    await simulateDelay(250);
+    
+    // TEMPORARY: Filter mock data
+    return mockDeposits.filter(deposit => deposit.companyId === companyId);
+  }
+
+  async getDepositById(id: string): Promise<Deposit | null> {
+    await simulateDelay(200);
+    
+    const deposit = mockDeposits.find(d => d.id === id);
+    return deposit || null;
+  }
+
+  async createDeposit(data: Partial<Deposit>): Promise<Deposit> {
+    await simulateDelay(400);
+    
+    const depositLines = data.depositLines || [];
+    const totalAmount = depositLines.reduce((sum, line) => sum + line.amount, 0);
+    
+    const newDeposit: Deposit = {
+      id: generateId('deposit'),
+      companyId: data.companyId || 'comp-1',
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      bankAccountId: data.bankAccountId || '',
+      bankAccountName: data.bankAccountName,
+      depositToAccountId: data.depositToAccountId || data.bankAccountId || '',
+      depositToAccountName: data.depositToAccountName || data.bankAccountName,
+      depositLines,
+      lineItems: data.lineItems || depositLines,
+      totalAmount,
+      referenceNumber: data.referenceNumber,
+      status: data.status || 'pending',
+      memo: data.memo,
+      syncStatus: 'synced',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    return newDeposit;
+  }
+
+  async updateDeposit(id: string, data: Partial<Deposit>): Promise<Deposit> {
+    await simulateDelay(350);
+    
+    const existing = mockDeposits.find(d => d.id === id);
+    if (!existing) {
+      throw new Error(`Deposit ${id} not found`);
+    }
+    
+    const depositLines = data.depositLines || existing.depositLines;
+    const totalAmount = depositLines.reduce((sum, line) => sum + line.amount, 0);
+    
+    return { 
+      ...existing, 
+      ...data,
+      depositLines,
+      totalAmount,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async deleteDeposit(id: string): Promise<void> {
+    await simulateDelay(300);
+    
+    const existing = mockDeposits.find(d => d.id === id);
+    if (!existing) {
+      throw new Error(`Deposit ${id} not found`);
     }
   }
 }

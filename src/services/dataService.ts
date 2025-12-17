@@ -7,12 +7,103 @@
  */
 
 import { cacheManager } from './cacheManager';
-import { db, dbHelpers, CachedInvoice, CachedBill, CachedTransaction, CachedJournalEntry } from './indexedDB';
+import { db, dbHelpers, CachedInvoice, CachedBill, CachedTransaction, CachedJournalEntry, CachedCustomerPayment, CachedVendorPayment, CachedCreditMemo, CachedDeposit } from './indexedDB';
 import { apiClient } from './apiClient';
 import type { Invoice } from '@/data/mockInvoices';
 import type { Bill } from '@/data/mockBills';
 import type { Transaction } from '@/data/mockTransactions';
 import type { JournalEntry } from '@/data/mockJournalEntries';
+
+// Payment type definitions
+export interface CustomerPayment {
+  id: string;
+  companyId: string;
+  customerId: string;
+  customerName?: string;
+  txnDate: string;
+  amount: number;
+  paymentMethod?: string;
+  referenceNumber?: string;
+  depositToAccountId: string;
+  appliedToInvoices?: Array<{
+    invoiceId: string;
+    amount: number;
+  }>;
+  memo?: string;
+  syncStatus?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface VendorPayment {
+  id: string;
+  companyId: string;
+  vendorId: string;
+  vendorName?: string;
+  txnDate: string;
+  amount: number;
+  paymentMethod?: string;
+  referenceNumber?: string;
+  bankAccountId: string;
+  appliedToBills?: Array<{
+    billId: string;
+    amount: number;
+  }>;
+  memo?: string;
+  syncStatus?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreditMemo {
+  id: string;
+  companyId: string;
+  customerId: string;
+  customerName?: string;
+  invoiceId?: string; // Reference to invoice being credited
+  txnDate: string;
+  lineItems: Array<{
+    id: string;
+    accountId: string;
+    accountName?: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    amount: number;
+  }>;
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  totalAmount: number;
+  status: string;
+  memo?: string;
+  syncStatus?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Deposit {
+  id: string;
+  companyId: string;
+  txnDate: string;
+  depositToAccountId: string;
+  depositToAccountName?: string;
+  lineItems: Array<{
+    id: string;
+    paymentType: 'cash' | 'check' | 'creditCard' | 'other';
+    paymentMethodRef?: string;
+    accountId?: string;
+    customerId?: string;
+    description?: string;
+    amount: number;
+  }>;
+  totalAmount: number;
+  memo?: string;
+  syncStatus?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 /**
  * Cache key builders
@@ -30,6 +121,18 @@ const cacheKeys = {
   journalEntryList: (companyId: string, filters?: any) => 
     `journalEntries:${companyId}:${JSON.stringify(filters || {})}`,
   journalEntry: (id: string) => `journalEntry:${id}`,
+  customerPaymentList: (companyId: string, filters?: any) => 
+    `customerPayments:${companyId}:${JSON.stringify(filters || {})}`,
+  customerPayment: (id: string) => `customerPayment:${id}`,
+  vendorPaymentList: (companyId: string, filters?: any) => 
+    `vendorPayments:${companyId}:${JSON.stringify(filters || {})}`,
+  vendorPayment: (id: string) => `vendorPayment:${id}`,
+  creditMemoList: (companyId: string, filters?: any) => 
+    `creditMemos:${companyId}:${JSON.stringify(filters || {})}`,
+  creditMemo: (id: string) => `creditMemo:${id}`,
+  depositList: (companyId: string, filters?: any) => 
+    `deposits:${companyId}:${JSON.stringify(filters || {})}`,
+  deposit: (id: string) => `deposit:${id}`,
 };
 
 /**
@@ -924,6 +1027,1178 @@ class DataService {
     cacheManager.invalidatePattern('journalEntries:');
   }
 
+  // --- CUSTOMER PAYMENTS ---
+
+  /**
+   * Get customer payments with 3-tier cache
+   */
+  async getCustomerPayments(companyId: string, filters?: any): Promise<CustomerPayment[]> {
+    const cacheKey = cacheKeys.customerPaymentList(companyId, filters);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<CustomerPayment[]>(cacheKey);
+    if (memoryHit) {
+      console.log('[DataService] Memory cache HIT:', cacheKey);
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResults = await dbHelpers.getByCompany<CachedCustomerPayment>(db.customerPayments, companyId);
+      
+      if (dbResults.length > 0) {
+        console.log('[DataService] IndexedDB HIT:', cacheKey);
+        
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as CustomerPayment[]).filter(payment => payment.companyId === companyId);
+        
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.customerPayments.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.customerId) {
+            filtered = filtered.filter(payment => payment.customerId === filters.customerId);
+          }
+          
+          // Update memory cache
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
+        }
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    console.log('[DataService] API fetch:', cacheKey);
+    const apiResults = await apiClient.getCustomerPayments(companyId, filters);
+
+    // Update both caches
+    cacheManager.set(cacheKey, apiResults);
+    
+    try {
+      for (const payment of apiResults) {
+        await dbHelpers.upsert(db.customerPayments, {
+          ...payment,
+          syncStatus: 'SYNCED',
+        } as CachedCustomerPayment);
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    return apiResults;
+  }
+
+  /**
+   * Get single customer payment by ID
+   */
+  async getCustomerPaymentById(id: string): Promise<CustomerPayment | null> {
+    const cacheKey = cacheKeys.customerPayment(id);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<CustomerPayment>(cacheKey);
+    if (memoryHit) {
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResult = await dbHelpers.getById(db.customerPayments, id);
+      if (dbResult) {
+        cacheManager.set(cacheKey, dbResult as CustomerPayment);
+        return dbResult as CustomerPayment;
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    const apiResult = await apiClient.getCustomerPaymentById(id);
+    if (apiResult) {
+      cacheManager.set(cacheKey, apiResult);
+      
+      try {
+        await dbHelpers.upsert(db.customerPayments, {
+          ...apiResult,
+          syncStatus: 'SYNCED',
+        } as CachedCustomerPayment);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+    }
+
+    return apiResult;
+  }
+
+  async createCustomerPayment(data: Partial<CustomerPayment>): Promise<CustomerPayment> {
+    const newPayment = await apiClient.createCustomerPayment(data);
+    const cacheKey = cacheKeys.customerPayment(newPayment.id);
+    cacheManager.set(cacheKey, newPayment);
+
+    try {
+      await dbHelpers.upsert(db.customerPayments, {
+        ...newPayment,
+        syncStatus: 'SYNCED',
+      } as CachedCustomerPayment);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateCustomerPaymentLists();
+    return newPayment;
+  }
+
+  optimisticCreateCustomerPayment(tempId: string, data: Partial<CustomerPayment>): void {
+    const optimisticPayment: CustomerPayment = {
+      id: tempId,
+      companyId: data.companyId || 'comp-1',
+      customerId: data.customerId || '',
+      customerName: data.customerName || '',
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      amount: data.amount || 0,
+      paymentMethod: data.paymentMethod,
+      referenceNumber: data.referenceNumber,
+      depositToAccountId: data.depositToAccountId || '',
+      appliedToInvoices: data.appliedToInvoices || [],
+      memo: data.memo,
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    cacheManager.set(cacheKeys.customerPayment(tempId), optimisticPayment);
+
+    try {
+      dbHelpers.upsert(db.customerPayments, {
+        ...optimisticPayment,
+        syncStatus: 'PENDING_SYNC',
+      } as CachedCustomerPayment);
+
+      dbHelpers.addToSyncQueue({
+        entityType: 'customerPayment',
+        entityId: tempId,
+        operation: 'CREATE',
+        payload: data,
+        createdAt: Date.now(),
+        status: 'PENDING',
+        retryCount: 0,
+      });
+    } catch (error) {
+      console.warn('[DataService] Optimistic write failed:', error);
+    }
+
+    this.invalidateCustomerPaymentLists();
+  }
+
+  async updateCustomerPayment(id: string, data: Partial<CustomerPayment>): Promise<CustomerPayment> {
+    let existingPayment: CustomerPayment | null = null;
+    
+    if (id.startsWith('temp-')) {
+      existingPayment = cacheManager.get<CustomerPayment>(cacheKeys.customerPayment(id));
+      if (!existingPayment) {
+        try {
+          const dbResult = await dbHelpers.getById(db.customerPayments, id);
+          if (dbResult) {
+            existingPayment = dbResult as CustomerPayment;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp customer payment from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingPayment) {
+        throw new Error(`Customer Payment ${id} not found in cache or IndexedDB`);
+      }
+      
+      const updatedPayment: CustomerPayment = {
+        ...existingPayment,
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      cacheManager.set(cacheKeys.customerPayment(id), updatedPayment);
+      
+      try {
+        await dbHelpers.upsert(db.customerPayments, {
+          ...updatedPayment,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedCustomerPayment);
+
+        dbHelpers.addToSyncQueue({
+          entityType: 'customerPayment',
+          entityId: id,
+          operation: 'UPDATE',
+          payload: data,
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateCustomerPaymentLists();
+      return updatedPayment;
+    }
+    
+    const updatedPayment = await apiClient.updateCustomerPayment(id, data);
+    cacheManager.set(cacheKeys.customerPayment(id), updatedPayment);
+
+    try {
+      await dbHelpers.upsert(db.customerPayments, {
+        ...updatedPayment,
+        syncStatus: 'SYNCED',
+      } as CachedCustomerPayment);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateCustomerPaymentLists();
+    return updatedPayment;
+  }
+
+  async deleteCustomerPayment(id: string): Promise<void> {
+    if (id.startsWith('temp-')) {
+      cacheManager.delete(cacheKeys.customerPayment(id));
+      
+      try {
+        await dbHelpers.deleteById(db.customerPayments, id);
+        
+        dbHelpers.addToSyncQueue({
+          entityType: 'customerPayment',
+          entityId: id,
+          operation: 'DELETE',
+          payload: { id },
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB delete failed:', error);
+      }
+      
+      this.invalidateCustomerPaymentLists();
+      return;
+    }
+
+    await apiClient.deleteCustomerPayment(id);
+    cacheManager.delete(cacheKeys.customerPayment(id));
+
+    try {
+      await dbHelpers.deleteById(db.customerPayments, id);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB delete failed:', error);
+    }
+
+    this.invalidateCustomerPaymentLists();
+  }
+
+  rollbackCustomerPayment(tempId: string): void {
+    cacheManager.delete(cacheKeys.customerPayment(tempId));
+    try {
+      dbHelpers.deleteById(db.customerPayments, tempId);
+    } catch (error) {
+      console.warn('[DataService] Rollback failed:', error);
+    }
+    this.invalidateCustomerPaymentLists();
+  }
+
+  private invalidateCustomerPaymentLists(): void {
+    cacheManager.invalidatePattern('customerPayments:');
+  }
+
+  // --- VENDOR PAYMENTS ---
+
+  /**
+   * Get vendor payments with 3-tier cache
+   */
+  async getVendorPayments(companyId: string, filters?: any): Promise<VendorPayment[]> {
+    const cacheKey = cacheKeys.vendorPaymentList(companyId, filters);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<VendorPayment[]>(cacheKey);
+    if (memoryHit) {
+      console.log('[DataService] Memory cache HIT:', cacheKey);
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResults = await dbHelpers.getByCompany<CachedVendorPayment>(db.vendorPayments, companyId);
+      
+      if (dbResults.length > 0) {
+        console.log('[DataService] IndexedDB HIT:', cacheKey);
+        
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as VendorPayment[]).filter(payment => payment.companyId === companyId);
+        
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.vendorPayments.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.vendorId) {
+            filtered = filtered.filter(payment => payment.vendorId === filters.vendorId);
+          }
+          
+          // Update memory cache
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
+        }
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    console.log('[DataService] API fetch:', cacheKey);
+    const apiResults = await apiClient.getVendorPayments(companyId, filters);
+
+    // Update both caches
+    cacheManager.set(cacheKey, apiResults);
+    
+    try {
+      for (const payment of apiResults) {
+        await dbHelpers.upsert(db.vendorPayments, {
+          ...payment,
+          syncStatus: 'SYNCED',
+        } as CachedVendorPayment);
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    return apiResults;
+  }
+
+  /**
+   * Get single vendor payment by ID
+   */
+  async getVendorPaymentById(id: string): Promise<VendorPayment | null> {
+    const cacheKey = cacheKeys.vendorPayment(id);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<VendorPayment>(cacheKey);
+    if (memoryHit) {
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResult = await dbHelpers.getById(db.vendorPayments, id);
+      if (dbResult) {
+        cacheManager.set(cacheKey, dbResult as VendorPayment);
+        return dbResult as VendorPayment;
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    const apiResult = await apiClient.getVendorPaymentById(id);
+    if (apiResult) {
+      cacheManager.set(cacheKey, apiResult);
+      
+      try {
+        await dbHelpers.upsert(db.vendorPayments, {
+          ...apiResult,
+          syncStatus: 'SYNCED',
+        } as CachedVendorPayment);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+    }
+
+    return apiResult;
+  }
+
+  async createVendorPayment(data: Partial<VendorPayment>): Promise<VendorPayment> {
+    const newPayment = await apiClient.createVendorPayment(data);
+    const cacheKey = cacheKeys.vendorPayment(newPayment.id);
+    cacheManager.set(cacheKey, newPayment);
+
+    try {
+      await dbHelpers.upsert(db.vendorPayments, {
+        ...newPayment,
+        syncStatus: 'SYNCED',
+      } as CachedVendorPayment);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateVendorPaymentLists();
+    return newPayment;
+  }
+
+  optimisticCreateVendorPayment(tempId: string, data: Partial<VendorPayment>): void {
+    const optimisticPayment: VendorPayment = {
+      id: tempId,
+      companyId: data.companyId || 'comp-1',
+      vendorId: data.vendorId || '',
+      vendorName: data.vendorName || '',
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      amount: data.amount || 0,
+      paymentMethod: data.paymentMethod,
+      referenceNumber: data.referenceNumber,
+      bankAccountId: data.bankAccountId || '',
+      appliedToBills: data.appliedToBills || [],
+      memo: data.memo,
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    cacheManager.set(cacheKeys.vendorPayment(tempId), optimisticPayment);
+
+    try {
+      dbHelpers.upsert(db.vendorPayments, {
+        ...optimisticPayment,
+        syncStatus: 'PENDING_SYNC',
+      } as CachedVendorPayment);
+
+      dbHelpers.addToSyncQueue({
+        entityType: 'vendorPayment',
+        entityId: tempId,
+        operation: 'CREATE',
+        payload: data,
+        createdAt: Date.now(),
+        status: 'PENDING',
+        retryCount: 0,
+      });
+    } catch (error) {
+      console.warn('[DataService] Optimistic write failed:', error);
+    }
+
+    this.invalidateVendorPaymentLists();
+  }
+
+  async updateVendorPayment(id: string, data: Partial<VendorPayment>): Promise<VendorPayment> {
+    let existingPayment: VendorPayment | null = null;
+    
+    if (id.startsWith('temp-')) {
+      existingPayment = cacheManager.get<VendorPayment>(cacheKeys.vendorPayment(id));
+      if (!existingPayment) {
+        try {
+          const dbResult = await dbHelpers.getById(db.vendorPayments, id);
+          if (dbResult) {
+            existingPayment = dbResult as VendorPayment;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp vendor payment from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingPayment) {
+        throw new Error(`Vendor Payment ${id} not found in cache or IndexedDB`);
+      }
+      
+      const updatedPayment: VendorPayment = {
+        ...existingPayment,
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      cacheManager.set(cacheKeys.vendorPayment(id), updatedPayment);
+      
+      try {
+        await dbHelpers.upsert(db.vendorPayments, {
+          ...updatedPayment,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedVendorPayment);
+
+        dbHelpers.addToSyncQueue({
+          entityType: 'vendorPayment',
+          entityId: id,
+          operation: 'UPDATE',
+          payload: data,
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateVendorPaymentLists();
+      return updatedPayment;
+    }
+    
+    const updatedPayment = await apiClient.updateVendorPayment(id, data);
+    cacheManager.set(cacheKeys.vendorPayment(id), updatedPayment);
+
+    try {
+      await dbHelpers.upsert(db.vendorPayments, {
+        ...updatedPayment,
+        syncStatus: 'SYNCED',
+      } as CachedVendorPayment);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateVendorPaymentLists();
+    return updatedPayment;
+  }
+
+  async deleteVendorPayment(id: string): Promise<void> {
+    if (id.startsWith('temp-')) {
+      cacheManager.delete(cacheKeys.vendorPayment(id));
+      
+      try {
+        await dbHelpers.deleteById(db.vendorPayments, id);
+        
+        dbHelpers.addToSyncQueue({
+          entityType: 'vendorPayment',
+          entityId: id,
+          operation: 'DELETE',
+          payload: { id },
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB delete failed:', error);
+      }
+      
+      this.invalidateVendorPaymentLists();
+      return;
+    }
+
+    await apiClient.deleteVendorPayment(id);
+    cacheManager.delete(cacheKeys.vendorPayment(id));
+
+    try {
+      await dbHelpers.deleteById(db.vendorPayments, id);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB delete failed:', error);
+    }
+
+    this.invalidateVendorPaymentLists();
+  }
+
+  rollbackVendorPayment(tempId: string): void {
+    cacheManager.delete(cacheKeys.vendorPayment(tempId));
+    try {
+      dbHelpers.deleteById(db.vendorPayments, tempId);
+    } catch (error) {
+      console.warn('[DataService] Rollback failed:', error);
+    }
+    this.invalidateVendorPaymentLists();
+  }
+
+  private invalidateVendorPaymentLists(): void {
+    cacheManager.invalidatePattern('vendorPayments:');
+  }
+
+  // --- CREDIT MEMOS ---
+
+  /**
+   * Get credit memos with 3-tier cache
+   */
+  async getCreditMemos(companyId: string, filters?: any): Promise<CreditMemo[]> {
+    const cacheKey = cacheKeys.creditMemoList(companyId, filters);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<CreditMemo[]>(cacheKey);
+    if (memoryHit) {
+      console.log('[DataService] Memory cache HIT:', cacheKey);
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResults = await dbHelpers.getByCompany<CachedCreditMemo>(db.creditMemos, companyId);
+      
+      if (dbResults.length > 0) {
+        console.log('[DataService] IndexedDB HIT:', cacheKey);
+        
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as CreditMemo[]).filter(memo => memo.companyId === companyId);
+        
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.creditMemos.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.customerId) {
+            filtered = filtered.filter(memo => memo.customerId === filters.customerId);
+          }
+          if (filters?.status) {
+            filtered = filtered.filter(memo => memo.status === filters.status);
+          }
+          
+          // Update memory cache
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
+        }
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    console.log('[DataService] API fetch:', cacheKey);
+    const apiResults = await apiClient.getCreditMemos(companyId, filters);
+
+    // Update both caches
+    cacheManager.set(cacheKey, apiResults);
+    
+    try {
+      for (const memo of apiResults) {
+        await dbHelpers.upsert(db.creditMemos, {
+          ...memo,
+          syncStatus: 'SYNCED',
+        } as CachedCreditMemo);
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    return apiResults;
+  }
+
+  /**
+   * Get single credit memo by ID
+   */
+  async getCreditMemoById(id: string): Promise<CreditMemo | null> {
+    const cacheKey = cacheKeys.creditMemo(id);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<CreditMemo>(cacheKey);
+    if (memoryHit) {
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResult = await dbHelpers.getById(db.creditMemos, id);
+      if (dbResult) {
+        cacheManager.set(cacheKey, dbResult as CreditMemo);
+        return dbResult as CreditMemo;
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    const apiResult = await apiClient.getCreditMemoById(id);
+    if (apiResult) {
+      cacheManager.set(cacheKey, apiResult);
+      
+      try {
+        await dbHelpers.upsert(db.creditMemos, {
+          ...apiResult,
+          syncStatus: 'SYNCED',
+        } as CachedCreditMemo);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+    }
+
+    return apiResult;
+  }
+
+  async createCreditMemo(data: Partial<CreditMemo>): Promise<CreditMemo> {
+    const newCreditMemo = await apiClient.createCreditMemo(data);
+    const cacheKey = cacheKeys.creditMemo(newCreditMemo.id);
+    cacheManager.set(cacheKey, newCreditMemo);
+
+    try {
+      await dbHelpers.upsert(db.creditMemos, {
+        ...newCreditMemo,
+        syncStatus: 'SYNCED',
+      } as CachedCreditMemo);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateCreditMemoLists();
+    return newCreditMemo;
+  }
+
+  optimisticCreateCreditMemo(tempId: string, data: Partial<CreditMemo>): void {
+    const lineItems = data.lineItems || [];
+    const subtotal = data.subtotal || lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const taxRate = data.taxRate || 0;
+    const taxAmount = data.taxAmount || subtotal * taxRate;
+    const total = data.total || data.totalAmount || subtotal + taxAmount;
+    
+    // Generate unique docNumber if not provided
+    const docNumber = `CM-TEMP-${Date.now().toString().slice(-6)}`;
+    
+    const optimisticCreditMemo: CreditMemo = {
+      id: tempId,
+      companyId: data.companyId || 'comp-1',
+      customerId: data.customerId || '',
+      customerName: data.customerName || '',
+      invoiceId: data.invoiceId, // Preserve invoice reference
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      lineItems,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      totalAmount: total,
+      status: data.status || 'draft',
+      memo: data.memo,
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    cacheManager.set(cacheKeys.creditMemo(tempId), optimisticCreditMemo);
+
+    try {
+      dbHelpers.upsert(db.creditMemos, {
+        ...optimisticCreditMemo,
+        syncStatus: 'PENDING_SYNC',
+      } as CachedCreditMemo);
+
+      dbHelpers.addToSyncQueue({
+        entityType: 'creditMemo',
+        entityId: tempId,
+        operation: 'CREATE',
+        payload: data, // Preserve original payload including invoiceId
+        createdAt: Date.now(),
+        status: 'PENDING',
+        retryCount: 0,
+      });
+    } catch (error) {
+      console.warn('[DataService] Optimistic write failed:', error);
+    }
+
+    this.invalidateCreditMemoLists();
+  }
+
+  async updateCreditMemo(id: string, data: Partial<CreditMemo>): Promise<CreditMemo> {
+    let existingCreditMemo: CreditMemo | null = null;
+    
+    if (id.startsWith('temp-')) {
+      existingCreditMemo = cacheManager.get<CreditMemo>(cacheKeys.creditMemo(id));
+      if (!existingCreditMemo) {
+        try {
+          const dbResult = await dbHelpers.getById(db.creditMemos, id);
+          if (dbResult) {
+            existingCreditMemo = dbResult as CreditMemo;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp credit memo from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingCreditMemo) {
+        throw new Error(`Credit Memo ${id} not found in cache or IndexedDB`);
+      }
+      
+      const lineItems = data.lineItems || existingCreditMemo.lineItems;
+      const subtotal = data.subtotal ?? lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      const taxRate = data.taxRate ?? existingCreditMemo.taxRate;
+      const taxAmount = data.taxAmount ?? subtotal * taxRate;
+      const total = data.total ?? data.totalAmount ?? subtotal + taxAmount;
+      
+      const updatedCreditMemo: CreditMemo = {
+        ...existingCreditMemo,
+        ...data,
+        invoiceId: data.invoiceId ?? existingCreditMemo.invoiceId, // Preserve invoice reference
+        lineItems,
+        subtotal,
+        taxRate,
+        taxAmount,
+        total,
+        totalAmount: total,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      cacheManager.set(cacheKeys.creditMemo(id), updatedCreditMemo);
+      
+      try {
+        await dbHelpers.upsert(db.creditMemos, {
+          ...updatedCreditMemo,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedCreditMemo);
+
+        dbHelpers.addToSyncQueue({
+          entityType: 'creditMemo',
+          entityId: id,
+          operation: 'UPDATE',
+          payload: data, // Preserve original payload including invoiceId
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateCreditMemoLists();
+      return updatedCreditMemo;
+    }
+    
+    const updatedCreditMemo = await apiClient.updateCreditMemo(id, data);
+    cacheManager.set(cacheKeys.creditMemo(id), updatedCreditMemo);
+
+    try {
+      await dbHelpers.upsert(db.creditMemos, {
+        ...updatedCreditMemo,
+        syncStatus: 'SYNCED',
+      } as CachedCreditMemo);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateCreditMemoLists();
+    return updatedCreditMemo;
+  }
+
+  async deleteCreditMemo(id: string): Promise<void> {
+    if (id.startsWith('temp-')) {
+      cacheManager.delete(cacheKeys.creditMemo(id));
+      
+      try {
+        await dbHelpers.deleteById(db.creditMemos, id);
+        
+        dbHelpers.addToSyncQueue({
+          entityType: 'creditMemo',
+          entityId: id,
+          operation: 'DELETE',
+          payload: { id },
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB delete failed:', error);
+      }
+      
+      this.invalidateCreditMemoLists();
+      return;
+    }
+
+    await apiClient.deleteCreditMemo(id);
+    cacheManager.delete(cacheKeys.creditMemo(id));
+
+    try {
+      await dbHelpers.deleteById(db.creditMemos, id);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB delete failed:', error);
+    }
+
+    this.invalidateCreditMemoLists();
+  }
+
+  rollbackCreditMemo(tempId: string): void {
+    cacheManager.delete(cacheKeys.creditMemo(tempId));
+    try {
+      dbHelpers.deleteById(db.creditMemos, tempId);
+    } catch (error) {
+      console.warn('[DataService] Rollback failed:', error);
+    }
+    this.invalidateCreditMemoLists();
+  }
+
+  private invalidateCreditMemoLists(): void {
+    cacheManager.invalidatePattern('creditMemos:');
+  }
+
+  // --- DEPOSITS ---
+
+  /**
+   * Get deposits with 3-tier cache
+   */
+  async getDeposits(companyId: string, filters?: any): Promise<Deposit[]> {
+    const cacheKey = cacheKeys.depositList(companyId, filters);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<Deposit[]>(cacheKey);
+    if (memoryHit) {
+      console.log('[DataService] Memory cache HIT:', cacheKey);
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResults = await dbHelpers.getByCompany<CachedDeposit>(db.deposits, companyId);
+      
+      if (dbResults.length > 0) {
+        console.log('[DataService] IndexedDB HIT:', cacheKey);
+        
+        // Filter out items without companyId (old cached data)
+        let filtered = (dbResults as Deposit[]).filter(deposit => deposit.companyId === companyId);
+        
+        // If no valid items found, clear cache and fetch from API
+        if (filtered.length === 0) {
+          console.log('[DataService] Stale IndexedDB data detected, clearing...');
+          await db.deposits.clear();
+          // Fall through to API fetch
+        } else {
+          // Apply additional filters
+          if (filters?.bankAccountId) {
+            filtered = filtered.filter(deposit => deposit.bankAccountId === filters.bankAccountId);
+          }
+          if (filters?.status) {
+            filtered = filtered.filter(deposit => deposit.status === filters.status);
+          }
+          
+          // Update memory cache
+          cacheManager.set(cacheKey, filtered);
+          return filtered;
+        }
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    console.log('[DataService] API fetch:', cacheKey);
+    const apiResults = await apiClient.getDeposits(companyId, filters);
+
+    // Update both caches
+    cacheManager.set(cacheKey, apiResults);
+    
+    try {
+      for (const deposit of apiResults) {
+        await dbHelpers.upsert(db.deposits, {
+          ...deposit,
+          syncStatus: 'SYNCED',
+        } as CachedDeposit);
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    return apiResults;
+  }
+
+  /**
+   * Get single deposit by ID
+   */
+  async getDepositById(id: string): Promise<Deposit | null> {
+    const cacheKey = cacheKeys.deposit(id);
+
+    // 1. Check Memory Cache
+    const memoryHit = cacheManager.get<Deposit>(cacheKey);
+    if (memoryHit) {
+      return memoryHit;
+    }
+
+    // 2. Check IndexedDB
+    try {
+      const dbResult = await dbHelpers.getById(db.deposits, id);
+      if (dbResult) {
+        cacheManager.set(cacheKey, dbResult as Deposit);
+        return dbResult as Deposit;
+      }
+    } catch (error) {
+      console.warn('[DataService] IndexedDB read failed:', error);
+    }
+
+    // 3. Fetch from API
+    const apiResult = await apiClient.getDepositById(id);
+    if (apiResult) {
+      cacheManager.set(cacheKey, apiResult);
+      
+      try {
+        await dbHelpers.upsert(db.deposits, {
+          ...apiResult,
+          syncStatus: 'SYNCED',
+        } as CachedDeposit);
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+    }
+
+    return apiResult;
+  }
+
+  async createDeposit(data: Partial<Deposit>): Promise<Deposit> {
+    const newDeposit = await apiClient.createDeposit(data);
+    const cacheKey = cacheKeys.deposit(newDeposit.id);
+    cacheManager.set(cacheKey, newDeposit);
+
+    try {
+      await dbHelpers.upsert(db.deposits, {
+        ...newDeposit,
+        syncStatus: 'SYNCED',
+      } as CachedDeposit);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateDepositLists();
+    return newDeposit;
+  }
+
+  optimisticCreateDeposit(tempId: string, data: Partial<Deposit>): void {
+    const lineItems = data.lineItems || [];
+    const totalAmount = data.totalAmount || lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    
+    const optimisticDeposit: Deposit = {
+      id: tempId,
+      companyId: data.companyId || 'comp-1',
+      txnDate: data.txnDate || new Date().toISOString().split('T')[0],
+      depositToAccountId: data.depositToAccountId || '',
+      depositToAccountName: data.depositToAccountName,
+      lineItems,
+      totalAmount,
+      memo: data.memo,
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    cacheManager.set(cacheKeys.deposit(tempId), optimisticDeposit);
+
+    try {
+      dbHelpers.upsert(db.deposits, {
+        ...optimisticDeposit,
+        syncStatus: 'PENDING_SYNC',
+      } as CachedDeposit);
+
+      dbHelpers.addToSyncQueue({
+        entityType: 'deposit',
+        entityId: tempId,
+        operation: 'CREATE',
+        payload: data,
+        createdAt: Date.now(),
+        status: 'PENDING',
+        retryCount: 0,
+      });
+    } catch (error) {
+      console.warn('[DataService] Optimistic write failed:', error);
+    }
+
+    this.invalidateDepositLists();
+  }
+
+  async updateDeposit(id: string, data: Partial<Deposit>): Promise<Deposit> {
+    let existingDeposit: Deposit | null = null;
+    
+    if (id.startsWith('temp-')) {
+      existingDeposit = cacheManager.get<Deposit>(cacheKeys.deposit(id));
+      if (!existingDeposit) {
+        try {
+          const dbResult = await dbHelpers.getById(db.deposits, id);
+          if (dbResult) {
+            existingDeposit = dbResult as Deposit;
+          }
+        } catch (error) {
+          console.warn('[DataService] Failed to get temp deposit from IndexedDB:', error);
+        }
+      }
+      
+      if (!existingDeposit) {
+        throw new Error(`Deposit ${id} not found in cache or IndexedDB`);
+      }
+      
+      const lineItems = data.lineItems || existingDeposit.lineItems;
+      const totalAmount = data.totalAmount ?? lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      
+      const updatedDeposit: Deposit = {
+        ...existingDeposit,
+        ...data,
+        lineItems,
+        totalAmount,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      cacheManager.set(cacheKeys.deposit(id), updatedDeposit);
+      
+      try {
+        await dbHelpers.upsert(db.deposits, {
+          ...updatedDeposit,
+          syncStatus: 'PENDING_SYNC',
+        } as CachedDeposit);
+
+        dbHelpers.addToSyncQueue({
+          entityType: 'deposit',
+          entityId: id,
+          operation: 'UPDATE',
+          payload: data,
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB write failed:', error);
+      }
+      
+      this.invalidateDepositLists();
+      return updatedDeposit;
+    }
+    
+    const updatedDeposit = await apiClient.updateDeposit(id, data);
+    cacheManager.set(cacheKeys.deposit(id), updatedDeposit);
+
+    try {
+      await dbHelpers.upsert(db.deposits, {
+        ...updatedDeposit,
+        syncStatus: 'SYNCED',
+      } as CachedDeposit);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB write failed:', error);
+    }
+
+    this.invalidateDepositLists();
+    return updatedDeposit;
+  }
+
+  async deleteDeposit(id: string): Promise<void> {
+    if (id.startsWith('temp-')) {
+      cacheManager.delete(cacheKeys.deposit(id));
+      
+      try {
+        await dbHelpers.deleteById(db.deposits, id);
+        
+        dbHelpers.addToSyncQueue({
+          entityType: 'deposit',
+          entityId: id,
+          operation: 'DELETE',
+          payload: { id },
+          createdAt: Date.now(),
+          status: 'PENDING',
+          retryCount: 0,
+        });
+      } catch (error) {
+        console.warn('[DataService] IndexedDB delete failed:', error);
+      }
+      
+      this.invalidateDepositLists();
+      return;
+    }
+
+    await apiClient.deleteDeposit(id);
+    cacheManager.delete(cacheKeys.deposit(id));
+
+    try {
+      await dbHelpers.deleteById(db.deposits, id);
+    } catch (error) {
+      console.warn('[DataService] IndexedDB delete failed:', error);
+    }
+
+    this.invalidateDepositLists();
+  }
+
+  rollbackDeposit(tempId: string): void {
+    cacheManager.delete(cacheKeys.deposit(tempId));
+    try {
+      dbHelpers.deleteById(db.deposits, tempId);
+    } catch (error) {
+      console.warn('[DataService] Rollback failed:', error);
+    }
+    this.invalidateDepositLists();
+  }
+
+  private invalidateDepositLists(): void {
+    cacheManager.invalidatePattern('deposits:');
+  }
+
   // --- UTILITY METHODS ---
 
   /**
@@ -935,6 +2210,10 @@ class DataService {
     db.bills.clear();
     db.transactions.clear();
     db.journalEntries.clear();
+    db.customerPayments.clear();
+    db.vendorPayments.clear();
+    db.creditMemos.clear();
+    db.deposits.clear();
   }
 
   /**
