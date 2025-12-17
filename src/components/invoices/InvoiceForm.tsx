@@ -38,7 +38,13 @@ const defaultLineItem = (): InvoiceLineItem => ({
 export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClose, onSend, onDuplicate }: InvoiceFormProps) {
   // Detect if this is a duplicate (has data but no id)
   const isDuplicate = invoice && !invoice.id;
-  const firstInputRef = useRef<HTMLButtonElement>(null);
+  
+  // Refs for keyboard navigation to fields
+  const customerRef = useRef<HTMLButtonElement>(null);
+  const invoiceDateRef = useRef<HTMLInputElement>(null);
+  const dueDateRef = useRef<HTMLInputElement>(null);
+  const firstLineItemRef = useRef<HTMLInputElement>(null);
+  const memoRef = useRef<HTMLTextAreaElement>(null);
 
   // Initialize React Hook Form with Zod validation
   // Validation UX: validate on submit first, then on change after first attempt
@@ -89,7 +95,7 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
   // Focus first input when opening
   useEffect(() => {
     if (open) {
-      setTimeout(() => firstInputRef.current?.focus(), 100);
+      setTimeout(() => customerRef.current?.focus(), 100);
     }
   }, [open]);
 
@@ -152,31 +158,96 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
     })();
   }, [form, onSend, subtotal, taxAmount, total]);
 
-  // Keyboard shortcuts - unchanged functionality
+  // Keyboard shortcuts for form actions AND field navigation
   useEffect(() => {
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const isModifier = e.ctrlKey || e.metaKey;
+      const target = e.target as HTMLElement;
+      const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
       
+      // Form action shortcuts (work even when typing)
       if (isModifier && e.key === 's') {
         e.preventDefault();
         handleSave();
-      } else if (isModifier && e.key === 'Enter' && !e.shiftKey) {
+        return;
+      }
+      if (isModifier && e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSaveAndClose();
-      } else if (isModifier && e.shiftKey && e.key === 'Enter') {
+        return;
+      }
+      if (isModifier && e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
         handleSend();
-      } else if (e.key === 'Escape') {
+        return;
+      }
+      if (e.key === 'Escape') {
+        // If focused on an input/textarea, blur it first (allow shortcuts)
+        // Otherwise close the form
+        if (isTyping) {
+          e.preventDefault();
+          (target as HTMLElement).blur();
+          return;
+        }
         e.preventDefault();
         onOpenChange(false);
+        return;
       }
+      
+      // Field navigation shortcuts (work when NOT actively typing in an input/textarea)
+      // Allow shortcuts when focused on buttons, divs, or other non-input elements
+      if (!isModifier && !isTyping) {
+        const key = e.key.toLowerCase();
+        
+        if (key === 'c') {
+          e.preventDefault();
+          customerRef.current?.click(); // Opens the select dropdown
+          return;
+        }
+        if (key === 'd') {
+          e.preventDefault();
+          invoiceDateRef.current?.focus();
+          invoiceDateRef.current?.select(); // Select all for easy overwrite
+          return;
+        }
+        if (key === 'u') {
+          e.preventDefault();
+          dueDateRef.current?.focus();
+          dueDateRef.current?.select();
+          return;
+        }
+        if (key === 'l') {
+          e.preventDefault();
+          firstLineItemRef.current?.focus();
+          return;
+        }
+        if (key === 'm') {
+          e.preventDefault();
+          memoRef.current?.focus();
+          return;
+        }
+        if (key === 'n') {
+          e.preventDefault();
+          addLineItem();
+          // Focus the newly added line item after a tick
+          setTimeout(() => {
+            const inputs = document.querySelectorAll('[data-line-item-description]');
+            const lastInput = inputs[inputs.length - 1] as HTMLInputElement;
+            lastInput?.focus();
+          }, 0);
+          return;
+        }
+      }
+      
+      // Allow Tab key for normal form navigation
+      // (Don't prevent default on Tab)
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, handleSave, handleSaveAndClose, handleSend, onOpenChange]);
+  }, [open, handleSave, handleSaveAndClose, handleSend, onOpenChange, addLineItem]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -188,12 +259,23 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+      <SheetContent 
+        className="w-full sm:max-w-2xl overflow-y-auto"
+        onOpenAutoFocus={(e) => {
+          // Prevent auto-focus on sheet open, we'll handle focus manually
+          e.preventDefault();
+        }}
+      >
         <SheetHeader className="mb-6">
           <div className="flex items-center justify-between">
-            <SheetTitle>
-              {isDuplicate ? 'Duplicate Invoice' : invoice ? 'Edit Invoice' : 'New Invoice'}
-            </SheetTitle>
+            <div className="flex flex-col gap-1">
+              <SheetTitle>
+                {isDuplicate ? 'Duplicate Invoice' : invoice ? 'Edit Invoice' : 'New Invoice'}
+              </SheetTitle>
+              <div className="text-xs text-muted-foreground">
+                Press <kbd className="kbd kbd-xs">C</kbd>, <kbd className="kbd kbd-xs">D</kbd>, <kbd className="kbd kbd-xs">L</kbd>, <kbd className="kbd kbd-xs">M</kbd> to jump between fields • <kbd className="kbd kbd-xs">?</kbd> for all shortcuts
+              </div>
+            </div>
             {invoice && invoice.id && onDuplicate && (
               <Button
                 variant="outline"
@@ -227,10 +309,13 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
                 name="customerId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Customer</FormLabel>
+                    <FormLabel>
+                      Customer
+                      <kbd className="kbd text-[10px] ml-1.5 opacity-60">C</kbd>
+                    </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger ref={firstInputRef} className="focus:ring-ring">
+                        <SelectTrigger ref={customerRef} className="focus:ring-ring">
                           <SelectValue placeholder="Select customer" />
                         </SelectTrigger>
                       </FormControl>
@@ -251,12 +336,19 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
                 name="txnDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Invoice Date</FormLabel>
+                    <FormLabel>
+                      Invoice Date
+                      <kbd className="kbd text-[10px] ml-1.5 opacity-60">D</kbd>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type="date"
                         className="focus:ring-ring"
                         {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          invoiceDateRef.current = el;
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -270,12 +362,19 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
                 name="dueDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Due Date</FormLabel>
+                    <FormLabel>
+                      Due Date
+                      <kbd className="kbd text-[10px] ml-1.5 opacity-60">U</kbd>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type="date"
                         className="focus:ring-ring"
                         {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          dueDateRef.current = el;
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -287,16 +386,20 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
             {/* Line Items Section - with validation */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <FormLabel>Line Items</FormLabel>
+                <FormLabel>
+                  Line Items
+                  <kbd className="kbd text-[10px] ml-1.5 opacity-60">L</kbd>
+                </FormLabel>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={addLineItem}
-                  className="h-7 text-xs"
+                  className="h-7 text-xs gap-1"
                 >
-                  <Plus className="h-3 w-3 mr-1" />
+                  <Plus className="h-3 w-3" />
                   Add Line
+                  <kbd className="kbd text-[10px] ml-1">N</kbd>
                 </Button>
               </div>
               
@@ -323,9 +426,16 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
                             <FormItem>
                               <FormControl>
                                 <Input
+                                  data-line-item-description
                                   placeholder="Description"
                                   className="h-8 text-sm focus:ring-ring"
                                   {...field}
+                                  ref={(el) => {
+                                    field.ref(el);
+                                    if (index === 0) {
+                                      firstLineItemRef.current = el;
+                                    }
+                                  }}
                                 />
                               </FormControl>
                             </FormItem>
@@ -470,12 +580,19 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
               name="memo"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Memo</FormLabel>
+                  <FormLabel>
+                    Memo
+                    <kbd className="kbd text-[10px] ml-1.5 opacity-60">M</kbd>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Notes for this invoice..."
                       className="resize-none h-20 focus:ring-ring"
                       {...field}
+                      ref={(el) => {
+                        field.ref(el);
+                        memoRef.current = el;
+                      }}
                     />
                   </FormControl>
                   <FormMessage />

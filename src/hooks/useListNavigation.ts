@@ -70,6 +70,12 @@ export function useListNavigation({
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!enabled || itemCount === 0) return;
 
+    // Check if a modal/dialog/sheet is open - don't handle list navigation
+    const isModalOpen = document.querySelector('[data-state="open"][role="dialog"]') !== null;
+    if (isModalOpen) {
+      return; // Let the modal handle its own keyboard events
+    }
+
     const isMod = e.metaKey || e.ctrlKey;
 
     // Select All: Cmd/Ctrl + A

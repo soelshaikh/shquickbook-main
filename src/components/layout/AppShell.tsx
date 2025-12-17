@@ -34,6 +34,10 @@ export function AppShell({ children }: AppShellProps) {
   // Global keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const isMod = e.metaKey || e.ctrlKey;
+    
+    // Check if a modal/dialog/sheet is open - don't interfere with form shortcuts
+    const isModalOpen = document.querySelector('[data-state="open"][role="dialog"]') !== null;
+    const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName);
 
     // Command Palette: Cmd/Ctrl + K
     if (isMod && e.key === 'k') {
@@ -108,14 +112,19 @@ export function AppShell({ children }: AppShellProps) {
       return;
     }
 
-    // E key: Edit selected item
-    if (e.key.toLowerCase() === 'e' && !isMod) {
+    // E key: Edit selected item (skip if modal open)
+    if (e.key.toLowerCase() === 'e' && !isMod && !isModalOpen) {
       e.preventDefault();
       triggerAction('edit-selected');
       return;
     }
 
-    // Context-aware navigation shortcuts
+    // Context-aware navigation shortcuts (skip ALL if modal/dialog is open)
+    if (isModalOpen) {
+      // Let the modal/form handle its own shortcuts
+      return;
+    }
+
     const currentPath = location.pathname;
 
     // I key: New Invoice on /invoices, navigate otherwise

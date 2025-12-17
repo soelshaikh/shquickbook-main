@@ -61,6 +61,18 @@ const shortcuts = [
     ],
   },
   {
+    category: 'Invoice/Bill Form Editing',
+    items: [
+      { keys: ['C'], description: 'Focus Customer field' },
+      { keys: ['D'], description: 'Focus Invoice/Due Date' },
+      { keys: ['U'], description: 'Focus Due Date' },
+      { keys: ['L'], description: 'Focus Line Items (first)' },
+      { keys: ['N'], description: 'Add new line item' },
+      { keys: ['M'], description: 'Focus Memo field' },
+      { keys: ['Tab'], description: 'Move to next field' },
+    ],
+  },
+  {
     category: 'Form Actions',
     items: [
       { keys: ['Ctrl', 'S'], description: 'Save' },
