@@ -31,7 +31,14 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
   function JournalEntryForm({ open, onOpenChange, entry, onSave, onSaveAndClose, onDuplicate }, ref) {
   // Detect if this is a duplicate (has data but no id)
   const isDuplicate = entry && !entry.id;
-  const firstInputRef = useRef<HTMLInputElement>(null);
+  
+  // Refs for keyboard navigation to fields
+  const dateRef = useRef<HTMLInputElement>(null);
+  const memoRef = useRef<HTMLTextAreaElement>(null);
+  const firstLineAccountRef = useRef<HTMLButtonElement>(null);
+  
+  // Track if ESC was just used to blur a field (to require second ESC to close)
+  const escUsedToBlurRef = useRef<boolean>(false);
 
   // Initialize React Hook Form with Zod validation
   const form = useForm<JournalEntryFormData>({
@@ -69,7 +76,7 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
   // Focus first input when opening
   useEffect(() => {
     if (open) {
-      setTimeout(() => firstInputRef.current?.focus(), 100);
+      setTimeout(() => dateRef.current?.focus(), 100);
     }
   }, [open]);
 
@@ -120,42 +127,121 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
     })();
   }, [form, onSaveAndClose, entry]);
 
-  // Keyboard shortcuts - unchanged functionality
+  // Keyboard shortcuts for form actions AND field navigation
   useEffect(() => {
     if (!open) return;
 
     const handler = (e: KeyboardEvent) => {
       const isModifier = e.ctrlKey || e.metaKey;
+      const target = e.target as HTMLElement;
+      const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
       
+      // Reset ESC blur flag when user types or uses other keys
+      if (e.key !== 'Escape' && isTyping) {
+        escUsedToBlurRef.current = false;
+      }
+      
+      // Form action shortcuts (work even when typing)
       if (isModifier && e.key === 's') {
         e.preventDefault();
         handleSave();
-      } else if (isModifier && e.key === 'Enter') {
+        return;
+      }
+      if (isModifier && e.key === 'Enter') {
         e.preventDefault();
         if (balance.isBalanced) {
           handleSaveAndClose();
         }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        onOpenChange(false);
+        return;
+      }
+      // ESC key is now handled by onEscapeKeyDown prop on SheetContent
+      // No need to handle it here in the window event listener
+      
+      // Field navigation shortcuts (work when NOT actively typing in an input/textarea)
+      if (!isModifier && !isTyping) {
+        const key = e.key.toLowerCase();
+        
+        if (key === 'd') {
+          e.preventDefault();
+          dateRef.current?.focus();
+          dateRef.current?.select(); // Select all for easy overwrite
+          return;
+        }
+        if (key === 'm') {
+          e.preventDefault();
+          memoRef.current?.focus();
+          return;
+        }
+        if (key === 'l') {
+          e.preventDefault();
+          firstLineAccountRef.current?.click(); // Opens the select dropdown
+          return;
+        }
+        if (key === 'n') {
+          e.preventDefault();
+          addLine();
+          // Focus the newly added line after a tick
+          setTimeout(() => {
+            const selects = document.querySelectorAll('[data-journal-line-account]');
+            const lastSelect = selects[selects.length - 1] as HTMLButtonElement;
+            lastSelect?.click();
+          }, 0);
+          return;
+        }
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, handleSave, handleSaveAndClose, onOpenChange, balance.isBalanced]);
+  }, [open, handleSave, handleSaveAndClose, onOpenChange, balance.isBalanced, addLine]);
 
   const formatCurrency = (n: number) => 
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+      <SheetContent 
+        className="w-full sm:max-w-2xl overflow-y-auto"
+        onOpenAutoFocus={(e) => {
+          // Prevent auto-focus on sheet open, we'll handle focus manually
+          e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          // Intercept ESC key at the Sheet level (before Radix closes it)
+          const target = document.activeElement as HTMLElement;
+          const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+          
+          // If typing in a field, blur it first and prevent sheet from closing
+          if (isTyping) {
+            e.preventDefault();
+            target.blur();
+            escUsedToBlurRef.current = true;
+            // Reset flag after short delay so next ESC will close
+            setTimeout(() => {
+              escUsedToBlurRef.current = false;
+            }, 100);
+            return;
+          }
+          
+          // If ESC was just used to blur, prevent closing
+          if (escUsedToBlurRef.current) {
+            e.preventDefault();
+            return;
+          }
+          
+          // Otherwise, allow default behavior (close sheet)
+        }}
+      >
         <SheetHeader>
           <div className="flex items-center justify-between">
-            <SheetTitle>
-              {isDuplicate ? 'Duplicate Journal Entry' : entry ? 'Edit Journal Entry' : 'New Journal Entry'}
-            </SheetTitle>
+            <div className="flex flex-col gap-1">
+              <SheetTitle>
+                {isDuplicate ? 'Duplicate Journal Entry' : entry ? 'Edit Journal Entry' : 'New Journal Entry'}
+              </SheetTitle>
+              <div className="text-xs text-muted-foreground">
+                Press <kbd className="kbd kbd-xs">D</kbd>, <kbd className="kbd kbd-xs">M</kbd>, <kbd className="kbd kbd-xs">L</kbd> to jump between fields • <kbd className="kbd kbd-xs">?</kbd> for all shortcuts
+              </div>
+            </div>
             {entry && entry.id && onDuplicate && (
               <Button
                 variant="outline"
@@ -189,13 +275,19 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
                 name="txnDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Date</FormLabel>
+                    <FormLabel>
+                      Date
+                      <kbd className="kbd text-[10px] ml-1.5 opacity-60">D</kbd>
+                    </FormLabel>
                     <FormControl>
                       <Input
-                        ref={firstInputRef}
                         type="date"
                         className="focus:ring-ring"
                         {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          dateRef.current = el;
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -219,12 +311,19 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
               name="memo"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Memo</FormLabel>
+                  <FormLabel>
+                    Memo
+                    <kbd className="kbd text-[10px] ml-1.5 opacity-60">M</kbd>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Enter a description..."
                       className="resize-none h-16 focus:ring-ring"
                       {...field}
+                      ref={(el) => {
+                        field.ref(el);
+                        memoRef.current = el;
+                      }}
                     />
                   </FormControl>
                   <FormMessage />
@@ -235,10 +334,14 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
             {/* Line Items Section - with validation */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <FormLabel>Line Items</FormLabel>
-                <Button type="button" variant="ghost" size="sm" onClick={addLine}>
-                  <Plus className="h-4 w-4 mr-1" />
+                <FormLabel>
+                  Line Items
+                  <kbd className="kbd text-[10px] ml-1.5 opacity-60">L</kbd>
+                </FormLabel>
+                <Button type="button" variant="ghost" size="sm" onClick={addLine} className="gap-1">
+                  <Plus className="h-4 w-4" />
                   Add Line
+                  <kbd className="kbd text-[10px] ml-1">N</kbd>
                 </Button>
               </div>
 
@@ -268,7 +371,15 @@ export const JournalEntryForm = forwardRef<HTMLDivElement, JournalEntryFormProps
                                 value={field.value}
                               >
                                 <FormControl>
-                                  <SelectTrigger className="h-8 text-xs focus:ring-ring">
+                                  <SelectTrigger 
+                                    data-journal-line-account
+                                    className="h-8 text-xs focus:ring-ring"
+                                    ref={(el) => {
+                                      if (index === 0) {
+                                        firstLineAccountRef.current = el;
+                                      }
+                                    }}
+                                  >
                                     <SelectValue placeholder="Select account" />
                                   </SelectTrigger>
                                 </FormControl>

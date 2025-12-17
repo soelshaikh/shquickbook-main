@@ -42,7 +42,16 @@ const expenseCategories = [
 export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDuplicate }: BillFormProps) {
   // Detect if this is a duplicate (has data but no id)
   const isDuplicate = bill && !bill.id;
-  const firstInputRef = useRef<HTMLButtonElement>(null);
+  
+  // Refs for keyboard navigation to fields
+  const vendorRef = useRef<HTMLButtonElement>(null);
+  const billDateRef = useRef<HTMLInputElement>(null);
+  const dueDateRef = useRef<HTMLInputElement>(null);
+  const firstLineItemRef = useRef<HTMLInputElement>(null);
+  const memoRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Track if ESC was just used to blur a field (to require second ESC to close)
+  const escUsedToBlurRef = useRef<boolean>(false);
 
   // Initialize React Hook Form with Zod validation
   const form = useForm<BillFormData>({
@@ -80,7 +89,7 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
   // Focus first input when opening
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => firstInputRef.current?.focus(), 100);
+      setTimeout(() => vendorRef.current?.focus(), 100);
     }
   }, [isOpen]);
 
@@ -143,28 +152,82 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
     })();
   }, [form, onSaveAndClose, bill]);
 
-  // Keyboard shortcuts - unchanged functionality
+  // Keyboard shortcuts for form actions AND field navigation
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const isModifier = e.ctrlKey || e.metaKey;
+      const target = e.target as HTMLElement;
+      const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
       
+      // Reset ESC blur flag when user types or uses other keys
+      if (e.key !== 'Escape' && isTyping) {
+        escUsedToBlurRef.current = false;
+      }
+      
+      // Form action shortcuts (work even when typing)
       if (isModifier && e.key === 's') {
         e.preventDefault();
         handleSave();
-      } else if (isModifier && e.key === 'Enter') {
+        return;
+      }
+      if (isModifier && e.key === 'Enter') {
         e.preventDefault();
         handleSaveAndClose();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
+        return;
+      }
+      // ESC key is now handled by onEscapeKeyDown prop on SheetContent
+      // No need to handle it here in the window event listener
+      
+      // Field navigation shortcuts (work when NOT actively typing in an input/textarea)
+      if (!isModifier && !isTyping) {
+        const key = e.key.toLowerCase();
+        
+        if (key === 'v') {
+          e.preventDefault();
+          vendorRef.current?.click(); // Opens the select dropdown
+          return;
+        }
+        if (key === 'd') {
+          e.preventDefault();
+          billDateRef.current?.focus();
+          billDateRef.current?.select(); // Select all for easy overwrite
+          return;
+        }
+        if (key === 'u') {
+          e.preventDefault();
+          dueDateRef.current?.focus();
+          dueDateRef.current?.select();
+          return;
+        }
+        if (key === 'l') {
+          e.preventDefault();
+          firstLineItemRef.current?.focus();
+          return;
+        }
+        if (key === 'm') {
+          e.preventDefault();
+          memoRef.current?.focus();
+          return;
+        }
+        if (key === 'n') {
+          e.preventDefault();
+          addLineItem();
+          // Focus the newly added line item after a tick
+          setTimeout(() => {
+            const inputs = document.querySelectorAll('[data-line-item-description]');
+            const lastInput = inputs[inputs.length - 1] as HTMLInputElement;
+            lastInput?.focus();
+          }, 0);
+          return;
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, handleSave, handleSaveAndClose, onClose]);
+  }, [isOpen, handleSave, handleSaveAndClose, onClose, addLineItem]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -176,12 +239,48 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+      <SheetContent 
+        className="w-full sm:max-w-2xl overflow-y-auto"
+        onOpenAutoFocus={(e) => {
+          // Prevent auto-focus on sheet open, we'll handle focus manually
+          e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          // Intercept ESC key at the Sheet level (before Radix closes it)
+          const target = document.activeElement as HTMLElement;
+          const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+          
+          // If typing in a field, blur it first and prevent sheet from closing
+          if (isTyping) {
+            e.preventDefault();
+            target.blur();
+            escUsedToBlurRef.current = true;
+            // Reset flag after short delay so next ESC will close
+            setTimeout(() => {
+              escUsedToBlurRef.current = false;
+            }, 100);
+            return;
+          }
+          
+          // If ESC was just used to blur, prevent closing
+          if (escUsedToBlurRef.current) {
+            e.preventDefault();
+            return;
+          }
+          
+          // Otherwise, allow default behavior (close sheet)
+        }}
+      >
         <SheetHeader className="mb-6">
           <div className="flex items-center justify-between">
-            <SheetTitle>
-              {isDuplicate ? 'Duplicate Bill' : bill ? 'Edit Bill' : 'New Bill'}
-            </SheetTitle>
+            <div className="flex flex-col gap-1">
+              <SheetTitle>
+                {isDuplicate ? 'Duplicate Bill' : bill ? 'Edit Bill' : 'New Bill'}
+              </SheetTitle>
+              <div className="text-xs text-muted-foreground">
+                Press <kbd className="kbd kbd-xs">V</kbd>, <kbd className="kbd kbd-xs">D</kbd>, <kbd className="kbd kbd-xs">L</kbd>, <kbd className="kbd kbd-xs">M</kbd> to jump between fields • <kbd className="kbd kbd-xs">?</kbd> for all shortcuts
+              </div>
+            </div>
             {bill && bill.id && onDuplicate && (
               <Button
                 variant="outline"
@@ -213,10 +312,13 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
               name="vendorId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Vendor</FormLabel>
+                  <FormLabel>
+                    Vendor
+                    <kbd className="kbd text-[10px] ml-1.5 opacity-60">V</kbd>
+                  </FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger ref={firstInputRef} className="focus:ring-ring">
+                      <SelectTrigger ref={vendorRef} className="focus:ring-ring">
                         <SelectValue placeholder="Select a vendor" />
                       </SelectTrigger>
                     </FormControl>
@@ -241,12 +343,19 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
                 name="txnDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Bill Date</FormLabel>
+                    <FormLabel>
+                      Bill Date
+                      <kbd className="kbd text-[10px] ml-1.5 opacity-60">D</kbd>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type="date"
                         className="font-mono focus:ring-ring"
                         {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          billDateRef.current = el;
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -260,12 +369,19 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
                 name="dueDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Due Date</FormLabel>
+                    <FormLabel>
+                      Due Date
+                      <kbd className="kbd text-[10px] ml-1.5 opacity-60">U</kbd>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type="date"
                         className="font-mono focus:ring-ring"
                         {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          dueDateRef.current = el;
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -277,10 +393,14 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
             {/* Line Items Section - with validation */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <FormLabel>Expense Line Items</FormLabel>
-                <Button type="button" variant="ghost" size="sm" onClick={addLineItem}>
-                  <Plus className="h-4 w-4 mr-1" />
+                <FormLabel>
+                  Expense Line Items
+                  <kbd className="kbd text-[10px] ml-1.5 opacity-60">L</kbd>
+                </FormLabel>
+                <Button type="button" variant="ghost" size="sm" onClick={addLineItem} className="gap-1">
+                  <Plus className="h-4 w-4" />
                   Add Line
+                  <kbd className="kbd text-[10px] ml-1">N</kbd>
                 </Button>
               </div>
               
@@ -308,9 +428,16 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
                             <FormItem>
                               <FormControl>
                                 <Input
+                                  data-line-item-description
                                   placeholder="Description"
                                   className="h-8 text-sm focus:ring-ring"
                                   {...field}
+                                  ref={(el) => {
+                                    field.ref(el);
+                                    if (index === 0) {
+                                      firstLineItemRef.current = el;
+                                    }
+                                  }}
                                 />
                               </FormControl>
                             </FormItem>
@@ -480,12 +607,19 @@ export function BillForm({ bill, isOpen, onClose, onSave, onSaveAndClose, onDupl
               name="memo"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Memo</FormLabel>
+                  <FormLabel>
+                    Memo
+                    <kbd className="kbd text-[10px] ml-1.5 opacity-60">M</kbd>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Add notes or reference numbers..."
                       className="resize-none h-16 focus:ring-ring"
                       {...field}
+                      ref={(el) => {
+                        field.ref(el);
+                        memoRef.current = el;
+                      }}
                     />
                   </FormControl>
                   <FormMessage />

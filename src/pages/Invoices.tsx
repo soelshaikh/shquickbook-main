@@ -8,9 +8,12 @@ import { InvoiceList } from '@/components/invoices/InvoiceList';
 import { InvoiceForm } from '@/components/invoices/InvoiceForm';
 import { UndoToast } from '@/components/shared/UndoToast';
 import { ExportButton } from '@/components/shared/ExportButton';
+import { ColumnSettings } from '@/components/shared/ColumnSettings';
 import { RenderLimitWarning } from '@/components/shared/RenderLimitWarning';
 import { Invoice, InvoiceStatus } from '@/data/mockInvoices';
 import { useInvoices, useCreateInvoice, useUpdateInvoice } from '@/hooks/useInvoices';
+import { useColumnPreferences } from '@/hooks/useColumnPreferences';
+import { INVOICE_DEFAULT_COLUMNS } from '@/types/columnConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { dataService } from '@/services/dataService';
 import { useKeyboard } from '@/contexts/KeyboardContext';
@@ -74,8 +77,11 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   
-  // NEW: Advanced filter state
+  // Advanced filter state
   const [advancedFilters, setAdvancedFilters] = useState<Filter[]>([]);
+  
+  // Column preferences
+  const { columns, visibleColumns, toggleColumn, resetToDefaults } = useColumnPreferences('invoices', INVOICE_DEFAULT_COLUMNS);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
@@ -174,6 +180,11 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
 
     const handleExportView = () => {
       handleExport();
+    };
+    
+    const handleToggleColumnSettings = () => {
+      // This will be handled by the ColumnSettings component's keyboard shortcut internally
+      // We just need to register this so it doesn't conflict with other shortcuts
     };
 
     registerHandler('new-invoice', handleNewInvoice);
@@ -357,6 +368,24 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
     }
   }, [editingInvoice]);
 
+  // Handle inline edit from list view
+  const handleInlineEdit = useCallback(async (invoiceId: string, data: Partial<Invoice>) => {
+    // Find the invoice to get previous state for undo
+    const invoice = invoices.find(inv => inv.id === invoiceId);
+    if (!invoice) return;
+
+    const previousInvoice = { ...invoice };
+    
+    // Update the invoice
+    await updateInvoiceMutation.mutateAsync({ 
+      id: invoiceId, 
+      data: { ...data, companyId: 'comp-1' }
+    });
+    
+    // Show undo toast
+    setUndoState({ message: 'Invoice updated', invoice: previousInvoice, action: 'update' });
+  }, [invoices, updateInvoiceMutation]);
+
   return (
     <ErrorBoundary fallback={<InvoicesErrorFallback />}>
       <div ref={ref} className="h-full flex flex-col">
@@ -375,6 +404,12 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
                 onChange={setAdvancedFilters}
                 triggerLabel="Add Filter"
                 shortcutHint="⌘F"
+              />
+              <ColumnSettings 
+                columns={columns}
+                onToggleColumn={toggleColumn}
+                onReset={resetToDefaults}
+                variant="toolbar"
               />
               <ExportButton onClick={handleExport} itemCount={filteredInvoices.length} />
               <Button size="sm" onClick={handleNewInvoice} className="h-8 gap-1.5">
@@ -443,6 +478,10 @@ const Invoices = forwardRef<HTMLDivElement>((_, ref) => {
                 invoices={displayInvoices}
                 onInvoiceOpen={handleInvoiceOpen}
                 onInvoiceSelect={handleInvoiceSelect}
+                onInlineEdit={handleInlineEdit}
+                columns={columns}
+                onToggleColumn={toggleColumn}
+                onResetColumns={resetToDefaults}
               />
               {/* Background fetching indicator - subtle, non-blocking */}
               {isFetching && (

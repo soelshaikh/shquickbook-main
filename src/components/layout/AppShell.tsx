@@ -174,15 +174,15 @@ export function AppShell({ children }: AppShellProps) {
       return;
     }
 
-    // C key: Go to Credit Memos
-    if (e.key.toLowerCase() === 'c' && !isMod) {
+    // C key: Go to Credit Memos (only if Shift is NOT pressed)
+    if (e.key.toLowerCase() === 'c' && !isMod && !e.shiftKey) {
       e.preventDefault();
       navigate('/credit-memos?focus=list');
       return;
     }
 
-    // D key: Go to Deposits
-    if (e.key.toLowerCase() === 'd' && !isMod) {
+    // D key: Go to Deposits (only if Shift is NOT pressed)
+    if (e.key.toLowerCase() === 'd' && !isMod && !e.shiftKey) {
       e.preventDefault();
       navigate('/deposits?focus=list');
       return;

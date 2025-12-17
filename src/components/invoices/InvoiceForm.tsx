@@ -45,6 +45,9 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
   const dueDateRef = useRef<HTMLInputElement>(null);
   const firstLineItemRef = useRef<HTMLInputElement>(null);
   const memoRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Track if ESC was just used to blur a field (to require second ESC to close)
+  const escUsedToBlurRef = useRef<boolean>(false);
 
   // Initialize React Hook Form with Zod validation
   // Validation UX: validate on submit first, then on change after first attempt
@@ -167,6 +170,11 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
       const target = e.target as HTMLElement;
       const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
       
+      // Reset ESC blur flag when user types or uses other keys
+      if (e.key !== 'Escape' && isTyping) {
+        escUsedToBlurRef.current = false;
+      }
+      
       // Form action shortcuts (work even when typing)
       if (isModifier && e.key === 's') {
         e.preventDefault();
@@ -183,18 +191,8 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
         handleSend();
         return;
       }
-      if (e.key === 'Escape') {
-        // If focused on an input/textarea, blur it first (allow shortcuts)
-        // Otherwise close the form
-        if (isTyping) {
-          e.preventDefault();
-          (target as HTMLElement).blur();
-          return;
-        }
-        e.preventDefault();
-        onOpenChange(false);
-        return;
-      }
+      // ESC key is now handled by onEscapeKeyDown prop on SheetContent
+      // No need to handle it here in the window event listener
       
       // Field navigation shortcuts (work when NOT actively typing in an input/textarea)
       // Allow shortcuts when focused on buttons, divs, or other non-input elements
@@ -264,6 +262,31 @@ export function InvoiceForm({ open, onOpenChange, invoice, onSave, onSaveAndClos
         onOpenAutoFocus={(e) => {
           // Prevent auto-focus on sheet open, we'll handle focus manually
           e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          // Intercept ESC key at the Sheet level (before Radix closes it)
+          const target = document.activeElement as HTMLElement;
+          const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+          
+          // If typing in a field, blur it first and prevent sheet from closing
+          if (isTyping) {
+            e.preventDefault();
+            target.blur();
+            escUsedToBlurRef.current = true;
+            // Reset flag after short delay so next ESC will close
+            setTimeout(() => {
+              escUsedToBlurRef.current = false;
+            }, 100);
+            return;
+          }
+          
+          // If ESC was just used to blur, prevent closing
+          if (escUsedToBlurRef.current) {
+            e.preventDefault();
+            return;
+          }
+          
+          // Otherwise, allow default behavior (close sheet)
         }}
       >
         <SheetHeader className="mb-6">
